@@ -1,16 +1,10 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Trash2, Pencil, FileText, BookOpen, GraduationCap, BookMarked, Check, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
-
-interface Document {
-  id: string;
-  title: string;
-  format: string;
-  level: string;
-  pages: number;
-  createdAt: Date;
-}
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useDocuments } from "@/contexts/DocumentContext";
 
 const formatIcons: Record<string, typeof FileText> = {
   article: FileText,
@@ -26,59 +20,36 @@ const formatColors: Record<string, string> = {
   livre: "bg-accent/15 text-accent-foreground",
 };
 
-// Mock data for demo
-const mockDocs: Document[] = [
-  { id: "1", title: "La photosynthèse expliquée", format: "cours", level: "Lycée", pages: 45, createdAt: new Date(2025, 2, 28) },
-  { id: "2", title: "Introduction à l'algèbre linéaire", format: "livre", level: "Licence", pages: 180, createdAt: new Date(2025, 2, 25) },
-  { id: "3", title: "Les bases du machine learning", format: "article", level: "Ingénieur", pages: 18, createdAt: new Date(2025, 2, 20) },
-];
-
 const LibraryPage = () => {
-  const [docs, setDocs] = useState<Document[]>(mockDocs);
+  const { t } = useLanguage();
+  const { documents, deleteDocument, renameDocument } = useDocuments();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
-  const filteredDocs = docs.filter(d =>
+  const filteredDocs = documents.filter(d =>
     d.title.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleDelete = (id: string) => {
-    setDocs(docs.filter(d => d.id !== id));
-  };
-
   const handleRename = (id: string) => {
-    setDocs(docs.map(d => d.id === id ? { ...d, title: editTitle } : d));
+    renameDocument(id, editTitle);
     setEditingId(null);
-  };
-
-  const startEdit = (doc: Document) => {
-    setEditingId(doc.id);
-    setEditTitle(doc.title);
   };
 
   return (
     <div className="mobile-container">
-      <StatusBar title="Bibliothèque" />
+      <StatusBar title={t("library.title")} />
       <div className="page-content space-y-4">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="pt-2"
-        >
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
           <div className="relative">
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher un document..."
-              className="input-field w-full pl-10"
-            />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("library.search")} className="input-field w-full pl-10" />
           </div>
         </motion.div>
 
         <p className="text-xs text-muted-foreground font-medium">
-          {filteredDocs.length} document{filteredDocs.length > 1 ? "s" : ""}
+          {filteredDocs.length} {filteredDocs.length > 1 ? t("library.documentsPlural") : t("library.documents")}
         </p>
 
         <div className="space-y-3">
@@ -86,55 +57,34 @@ const LibraryPage = () => {
             {filteredDocs.map((doc, i) => {
               const Icon = formatIcons[doc.format] || FileText;
               return (
-                <motion.div
-                  key={doc.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: -100 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="glass-card p-4"
-                >
+                <motion.div key={doc.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -100 }} transition={{ delay: i * 0.05 }}
+                  className="glass-card p-4 cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate(`/document/${doc.id}`)}>
                   <div className="flex items-start gap-3">
-                    <div className={`rounded-xl p-2.5 ${formatColors[doc.format] || "bg-secondary"}`}>
+                    <div className={`rounded-xl p-2.5 shrink-0 ${formatColors[doc.format] || "bg-secondary"}`}>
                       <Icon size={20} />
                     </div>
                     <div className="flex-1 min-w-0">
                       {editingId === doc.id ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            value={editTitle}
-                            onChange={(e) => setEditTitle(e.target.value)}
-                            className="input-field flex-1 h-8 text-sm"
-                            autoFocus
-                          />
-                          <button onClick={() => handleRename(doc.id)} className="text-primary">
-                            <Check size={16} />
-                          </button>
-                          <button onClick={() => setEditingId(null)} className="text-muted-foreground">
-                            <X size={16} />
-                          </button>
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="input-field flex-1 h-8 text-sm" autoFocus />
+                          <button onClick={() => handleRename(doc.id)} className="text-primary"><Check size={16} /></button>
+                          <button onClick={() => setEditingId(null)} className="text-muted-foreground"><X size={16} /></button>
                         </div>
                       ) : (
                         <p className="text-sm font-semibold truncate">{doc.title}</p>
                       )}
                       <div className="flex items-center gap-2 mt-1">
                         <span className="chip chip-inactive text-[10px] py-0.5 px-2">{doc.format}</span>
-                        <span className="text-[10px] text-muted-foreground">{doc.level}</span>
+                        <span className="text-[10px] text-muted-foreground">{t(`level.${doc.level}`)}</span>
                         <span className="text-[10px] text-muted-foreground">·</span>
-                        <span className="text-[10px] text-muted-foreground">{doc.pages} pages</span>
+                        <span className="text-[10px] text-muted-foreground">{doc.pages} {t("home.pages")}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => startEdit(doc)}
-                        className="p-2 rounded-lg hover:bg-secondary transition-colors"
-                      >
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => { setEditingId(doc.id); setEditTitle(doc.title); }} className="p-2 rounded-lg hover:bg-secondary transition-colors">
                         <Pencil size={14} className="text-muted-foreground" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(doc.id)}
-                        className="p-2 rounded-lg hover:bg-destructive/10 transition-colors"
-                      >
+                      <button onClick={() => deleteDocument(doc.id)} className="p-2 rounded-lg hover:bg-destructive/10 transition-colors">
                         <Trash2 size={14} className="text-destructive" />
                       </button>
                     </div>
@@ -145,10 +95,13 @@ const LibraryPage = () => {
           </AnimatePresence>
 
           {filteredDocs.length === 0 && (
-            <div className="text-center py-12">
-              <BookOpen size={40} className="mx-auto text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground mt-3">Aucun document trouvé</p>
-            </div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
+              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                <BookOpen size={28} className="text-muted-foreground/40" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">{t("library.noDocuments")}</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">{t("library.noDocumentsDesc")}</p>
+            </motion.div>
           )}
         </div>
       </div>
