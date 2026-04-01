@@ -46,6 +46,7 @@ interface DocumentContextType {
   getAllChats: () => ChatMessage[];
   evaluations: Evaluation[];
   addEvaluation: (eval_: Evaluation) => void;
+  deleteEvaluation: (id: string) => void;
 }
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
@@ -150,6 +151,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
+  const deleteEvaluation = useCallback((id: string) => {
+    setEvaluations((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      localStorage.setItem(EVALS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   return (
     <DocumentContext.Provider
       value={{
@@ -162,6 +171,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         getAllChats,
         evaluations,
         addEvaluation,
+        deleteEvaluation,
       }}
     >
       {children}
