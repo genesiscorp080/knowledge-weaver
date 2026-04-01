@@ -151,6 +151,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
+  const deleteEvaluation = useCallback((id: string) => {
+    setEvaluations((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      localStorage.setItem(EVALS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   return (
     <DocumentContext.Provider
       value={{
