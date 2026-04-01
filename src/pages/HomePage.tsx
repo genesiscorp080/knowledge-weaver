@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Loader2, Download } from "lucide-react";
+import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Download } from "lucide-react";
 import StatusBar from "@/components/StatusBar";
+import GenerationOverlay from "@/components/GenerationOverlay";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments, GeneratedDocument } from "@/contexts/DocumentContext";
-import { callAI, buildGenerateSystemPrompt, generatePDF } from "@/lib/ai";
+import { generateDocumentChunked, generatePDF } from "@/lib/ai";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 
@@ -52,6 +53,7 @@ const HomePage = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [levelOpen, setLevelOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStep, setGenerationStep] = useState("");
   const [generatedContent, setGeneratedContent] = useState<string | null>(null);
   const [generatedTitle, setGeneratedTitle] = useState("");
@@ -69,37 +71,18 @@ const HomePage = () => {
     if (!topic || !level || !format) return;
     setIsGenerating(true);
     setGeneratedContent(null);
+    setGenerationProgress(0);
 
     try {
-      // Step 1: Generate TOC
-      setGenerationStep(t("home.generatingToc"));
-      const systemPrompt = buildGenerateSystemPrompt(level, format, depth, customPages, language);
-      
-      const tocPrompt = tableOfContents
-        ? `Generate a detailed table of contents for a document about "${topic}" based on these guidelines:\n${tableOfContents}`
-        : `Generate a detailed table of contents for a document about "${topic}".`;
+      const { toc, content } = await generateDocumentChunked(
+        topic, level, format, depth, customPages, language, tableOfContents,
+        (progress, step) => {
+          setGenerationProgress(progress);
+          setGenerationStep(step);
+        }
+      );
 
-      const toc = await callAI({
-        action: "generate_toc",
-        messages: [{ role: "user", content: tocPrompt }],
-        systemPrompt,
-      });
-
-      // Step 2: Generate content
-      setGenerationStep(t("home.generatingContent"));
-      const contentPrompt = `Based on this table of contents, write the complete document about "${topic}":\n\n${toc}\n\nWrite the full content now with all sections.`;
-
-      const content = await callAI({
-        action: "generate_content",
-        messages: [
-          { role: "user", content: tocPrompt },
-          { role: "assistant", content: toc },
-          { role: "user", content: contentPrompt },
-        ],
-        systemPrompt,
-      });
-
-      const fullContent = `# ${topic}\n\n## Table des matières\n\n${toc}\n\n---\n\n${content}`;
+      const fullContent = `# ${topic}\n\n## ${language === "fr" ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${content}`;
       const title = topic.length > 60 ? topic.slice(0, 57) + "..." : topic;
 
       const doc: GeneratedDocument = {
@@ -117,6 +100,7 @@ const HomePage = () => {
       };
 
       addDocument(doc);
+      setGenerationProgress(100);
       setGeneratedContent(fullContent);
       setGeneratedTitle(title);
       toast.success(language === "fr" ? "Document généré avec succès !" : "Document generated successfully!");
@@ -126,6 +110,7 @@ const HomePage = () => {
     } finally {
       setIsGenerating(false);
       setGenerationStep("");
+      setGenerationProgress(0);
     }
   };
 
@@ -139,7 +124,8 @@ const HomePage = () => {
 
   return (
     <div className="mobile-container">
-      <StatusBar title="ScribeAI" />
+      <StatusBar title="Prisca" />
+      <GenerationOverlay show={isGenerating} progress={generationProgress} step={generationStep} />
       <div className="page-content space-y-5">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
           <h2 className="font-display text-2xl font-bold text-foreground">{t("home.title")}</h2>
@@ -239,8 +225,8 @@ const HomePage = () => {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="pb-4">
           <button onClick={handleGenerate} disabled={!isValid || isGenerating}
             className={`btn-primary w-full flex items-center justify-center gap-2 ${!isValid || isGenerating ? "opacity-40 cursor-not-allowed" : ""}`}>
-            {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-            {isGenerating ? generationStep : t("home.generate")}
+            <Sparkles size={18} />
+            {t("home.generate")}
           </button>
         </motion.div>
 

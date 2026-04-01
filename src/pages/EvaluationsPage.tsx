@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ClipboardCheck, Star, Trophy, Lock, ChevronDown, Loader2, Download, FileText } from "lucide-react";
+import { ClipboardCheck, Star, Trophy, ChevronDown, Loader2, Download, FileText } from "lucide-react";
 import StatusBar from "@/components/StatusBar";
+import DocMenu from "@/components/DocMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments, Evaluation } from "@/contexts/DocumentContext";
 import { callAI, buildEvaluationSystemPrompt, generatePDF } from "@/lib/ai";
@@ -10,7 +11,7 @@ import ReactMarkdown from "react-markdown";
 
 const EvaluationsPage = () => {
   const { t, language } = useLanguage();
-  const { documents, evaluations, addEvaluation } = useDocuments();
+  const { documents, evaluations, addEvaluation, deleteEvaluation } = useDocuments();
   const [selectedDocId, setSelectedDocId] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectOpen, setSelectOpen] = useState(false);
@@ -120,12 +121,19 @@ const EvaluationsPage = () => {
               <div className={`rounded-xl p-2.5 ${eval_.completed ? "bg-primary/10" : "bg-accent/15"}`}>
                 {eval_.completed ? <Star size={18} className="text-primary" /> : <ClipboardCheck size={18} className="text-accent-foreground" />}
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{eval_.documentTitle}</p>
                 <p className="text-[11px] text-muted-foreground">
                   {eval_.totalQuestions} {t("eval.questions")}
                   {eval_.completed && eval_.score !== null && ` · ${t("eval.score")}: ${eval_.score}/${eval_.totalQuestions}`}
                 </p>
+              </div>
+              <div onClick={(e) => e.stopPropagation()}>
+                <DocMenu
+                  onRename={() => {}}
+                  onDelete={() => deleteEvaluation(eval_.id)}
+                  onDownload={() => generatePDF(`Évaluation - ${eval_.documentTitle}`, eval_.content)}
+                />
               </div>
             </motion.div>
           ))}

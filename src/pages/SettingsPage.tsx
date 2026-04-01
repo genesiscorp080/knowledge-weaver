@@ -1,5 +1,6 @@
-import { motion } from "framer-motion";
-import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight, FileText, Shield, X } from "lucide-react";
 import StatusBar from "@/components/StatusBar";
 import { useThemeContext } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -10,42 +11,29 @@ const SettingsPage = () => {
   const { theme, toggleTheme } = useThemeContext();
   const { language, setLanguage, t } = useLanguage();
   const { notificationsEnabled, setNotificationsEnabled } = useNotifications();
+  const [showTerms, setShowTerms] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
 
   const settingsGroups = [
     {
       title: t("settings.general"),
       items: [
-        {
-          icon: User,
-          label: t("settings.profile"),
-          desc: t("settings.profileDesc"),
-          action: undefined,
-        },
-        {
-          icon: Globe,
-          label: t("settings.language"),
-          desc: language === "fr" ? t("settings.languageFr") : t("settings.languageEn"),
-          action: () => setLanguage(language === "fr" ? "en" : "fr"),
-        },
-        {
-          icon: theme === "dark" ? Sun : Moon,
-          label: t("settings.appearance"),
-          desc: theme === "dark" ? t("settings.dark") : t("settings.light"),
-          action: toggleTheme,
-        },
+        { icon: User, label: t("settings.profile"), desc: t("settings.profileDesc"), action: undefined },
+        { icon: Globe, label: t("settings.language"), desc: language === "fr" ? t("settings.languageFr") : t("settings.languageEn"), action: () => setLanguage(language === "fr" ? "en" : "fr") },
+        { icon: theme === "dark" ? Sun : Moon, label: t("settings.appearance"), desc: theme === "dark" ? t("settings.dark") : t("settings.light"), action: toggleTheme },
       ],
     },
     {
       title: t("settings.notifications"),
       items: [
-        {
-          icon: notificationsEnabled ? Bell : BellOff,
-          label: t("settings.notificationsLabel"),
-          desc: notificationsEnabled ? t("settings.enabled") : t("settings.disabled"),
-          action: () => setNotificationsEnabled(!notificationsEnabled),
-          hasSwitch: true,
-          switchValue: notificationsEnabled,
-        },
+        { icon: notificationsEnabled ? Bell : BellOff, label: t("settings.notificationsLabel"), desc: notificationsEnabled ? t("settings.enabled") : t("settings.disabled"), action: () => setNotificationsEnabled(!notificationsEnabled), hasSwitch: true, switchValue: notificationsEnabled },
+      ],
+    },
+    {
+      title: t("settings.legal"),
+      items: [
+        { icon: FileText, label: t("settings.terms"), desc: t("settings.termsDesc"), action: () => setShowTerms(true) },
+        { icon: Shield, label: t("settings.privacy"), desc: t("settings.privacyDesc"), action: () => setShowPrivacy(true) },
       ],
     },
     {
@@ -56,6 +44,40 @@ const SettingsPage = () => {
       ],
     },
   ];
+
+  const termsContent = language === "fr"
+    ? `# Conditions d'utilisation de Prisca\n\n**Dernière mise à jour : Avril 2026**\n\n## 1. Acceptation des conditions\nEn utilisant Prisca, vous acceptez les présentes conditions d'utilisation. Si vous n'acceptez pas ces conditions, veuillez ne pas utiliser l'application.\n\n## 2. Description du service\nPrisca est une application de génération de documents éducatifs assistée par intelligence artificielle. Elle permet de créer des documents, des évaluations et de consulter du contenu éducatif.\n\n## 3. Utilisation acceptable\nVous vous engagez à utiliser Prisca de manière responsable et légale. Il est interdit d'utiliser le service pour générer du contenu illicite, diffamatoire ou portant atteinte aux droits d'autrui.\n\n## 4. Propriété intellectuelle\nLes documents générés par Prisca sont destinés à un usage personnel et éducatif. Le contenu généré par l'IA ne constitue pas un avis professionnel.\n\n## 5. Limitation de responsabilité\nPrisca est fourni "en l'état". Nous ne garantissons pas l'exactitude, l'exhaustivité ou la pertinence du contenu généré.\n\n## 6. Modifications\nNous nous réservons le droit de modifier ces conditions à tout moment.`
+    : `# Prisca Terms of Use\n\n**Last updated: April 2026**\n\n## 1. Acceptance of Terms\nBy using Prisca, you accept these terms of use. If you do not agree to these terms, please do not use the application.\n\n## 2. Service Description\nPrisca is an AI-assisted educational document generation application. It allows you to create documents, evaluations, and access educational content.\n\n## 3. Acceptable Use\nYou agree to use Prisca responsibly and legally. It is prohibited to use the service to generate illegal, defamatory, or rights-infringing content.\n\n## 4. Intellectual Property\nDocuments generated by Prisca are intended for personal and educational use. AI-generated content does not constitute professional advice.\n\n## 5. Limitation of Liability\nPrisca is provided "as is." We do not guarantee the accuracy, completeness, or relevance of generated content.\n\n## 6. Changes\nWe reserve the right to modify these terms at any time.`;
+
+  const privacyContent = language === "fr"
+    ? `# Politique de confidentialité de Prisca\n\n**Dernière mise à jour : Avril 2026**\n\n## 1. Collecte des données\nPrisca collecte uniquement les données nécessaires au fonctionnement du service : vos documents, paramètres de préférences et historique de conversations.\n\n## 2. Stockage des données\nVos données sont stockées localement sur votre appareil. Aucune donnée personnelle n'est transmise à des tiers sans votre consentement.\n\n## 3. Utilisation des données\nVos données sont utilisées exclusivement pour le fonctionnement de l'application et l'amélioration de votre expérience utilisateur.\n\n## 4. Traitement par l'IA\nLes contenus que vous soumettez pour la génération de documents sont envoyés à un service d'IA pour traitement. Ces données ne sont pas conservées après le traitement.\n\n## 5. Sécurité\nNous mettons en œuvre des mesures de sécurité appropriées pour protéger vos données contre tout accès non autorisé.\n\n## 6. Vos droits\nVous avez le droit d'accéder, de rectifier et de supprimer vos données personnelles à tout moment.\n\n## 7. Contact\nPour toute question concernant cette politique, veuillez nous contacter.`
+    : `# Prisca Privacy Policy\n\n**Last updated: April 2026**\n\n## 1. Data Collection\nPrisca only collects data necessary for the service to function: your documents, preference settings, and conversation history.\n\n## 2. Data Storage\nYour data is stored locally on your device. No personal data is transmitted to third parties without your consent.\n\n## 3. Data Usage\nYour data is used exclusively for the application's operation and to improve your user experience.\n\n## 4. AI Processing\nContent you submit for document generation is sent to an AI service for processing. This data is not retained after processing.\n\n## 5. Security\nWe implement appropriate security measures to protect your data against unauthorized access.\n\n## 6. Your Rights\nYou have the right to access, rectify, and delete your personal data at any time.\n\n## 7. Contact\nFor any questions regarding this policy, please contact us.`;
+
+  const renderModal = (show: boolean, content: string, onClose: () => void) => (
+    <AnimatePresence>
+      {show && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm">
+          <div className="max-w-md mx-auto h-full flex flex-col">
+            <div className="flex items-center justify-end px-5 py-4 border-b border-border">
+              <button onClick={onClose} className="p-2 rounded-lg hover:bg-secondary"><X size={18} className="text-muted-foreground" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div className="prose prose-sm max-w-none text-foreground prose-headings:font-display prose-headings:text-foreground prose-p:text-muted-foreground">
+                {content.split("\n").map((line, i) => {
+                  if (line.startsWith("# ")) return <h1 key={i} className="text-xl font-bold mb-4">{line.slice(2)}</h1>;
+                  if (line.startsWith("## ")) return <h2 key={i} className="text-lg font-semibold mt-6 mb-2">{line.slice(3)}</h2>;
+                  if (line.startsWith("**") && line.endsWith("**")) return <p key={i} className="font-semibold text-sm text-muted-foreground mb-4">{line.slice(2, -2)}</p>;
+                  if (line.trim() === "") return <br key={i} />;
+                  return <p key={i} className="text-sm text-muted-foreground mb-2">{line}</p>;
+                })}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 
   return (
     <div className="mobile-container">
@@ -100,6 +122,9 @@ const SettingsPage = () => {
 
         <p className="text-center text-[10px] text-muted-foreground py-4">{t("settings.version")}</p>
       </div>
+
+      {renderModal(showTerms, termsContent, () => setShowTerms(false))}
+      {renderModal(showPrivacy, privacyContent, () => setShowPrivacy(false))}
     </div>
   );
 };

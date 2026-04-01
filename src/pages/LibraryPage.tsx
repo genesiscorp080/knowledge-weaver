@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Trash2, Pencil, FileText, BookOpen, GraduationCap, BookMarked, Check, X } from "lucide-react";
+import { Search, FileText, BookOpen, GraduationCap, BookMarked, Check, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
+import DocMenu from "@/components/DocMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments } from "@/contexts/DocumentContext";
+import { generatePDF } from "@/lib/ai";
 
 const formatIcons: Record<string, typeof FileText> = {
   article: FileText,
@@ -80,13 +82,13 @@ const LibraryPage = () => {
                         <span className="text-[10px] text-muted-foreground">{doc.pages} {t("home.pages")}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => { setEditingId(doc.id); setEditTitle(doc.title); }} className="p-2 rounded-lg hover:bg-secondary transition-colors">
-                        <Pencil size={14} className="text-muted-foreground" />
-                      </button>
-                      <button onClick={() => deleteDocument(doc.id)} className="p-2 rounded-lg hover:bg-destructive/10 transition-colors">
-                        <Trash2 size={14} className="text-destructive" />
-                      </button>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <DocMenu
+                        onRename={() => { setEditingId(doc.id); setEditTitle(doc.title); }}
+                        onDelete={() => deleteDocument(doc.id)}
+                        onDownload={() => generatePDF(doc.title, doc.content)}
+                        onEdit={() => navigate(`/document/${doc.id}`)}
+                      />
                     </div>
                   </div>
                 </motion.div>
