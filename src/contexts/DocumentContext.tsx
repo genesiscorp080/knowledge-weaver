@@ -171,6 +171,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         getAllChats,
         evaluations,
         addEvaluation,
+        deleteEvaluation,
       }}
     >
       {children}
