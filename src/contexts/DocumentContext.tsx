@@ -46,6 +46,7 @@ interface DocumentContextType {
   getAllChats: () => ChatMessage[];
   evaluations: Evaluation[];
   addEvaluation: (eval_: Evaluation) => void;
+  deleteEvaluation: (id: string) => void;
 }
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
