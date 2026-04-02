@@ -14,6 +14,17 @@ export interface GeneratedDocument {
   chatHistory: ChatMessage[];
 }
 
+export interface ImportedDocument {
+  id: string;
+  title: string;
+  fileName: string;
+  content: string;
+  pageCount: number;
+  theme: string;
+  createdAt: Date;
+  chatHistory: ChatMessage[];
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -28,6 +39,7 @@ export interface Evaluation {
   documentId: string;
   documentTitle: string;
   content: string;
+  answersContent: string;
   depth: string;
   format: string;
   completed: boolean;
@@ -47,12 +59,19 @@ interface DocumentContextType {
   evaluations: Evaluation[];
   addEvaluation: (eval_: Evaluation) => void;
   deleteEvaluation: (id: string) => void;
+  importedDocuments: ImportedDocument[];
+  addImportedDocument: (doc: ImportedDocument) => void;
+  deleteImportedDocument: (id: string) => void;
+  getImportedDocument: (id: string) => ImportedDocument | undefined;
+  addImportedChatMessage: (docId: string, message: ChatMessage) => void;
+  getAllDocumentsForEval: () => { id: string; title: string; content: string; depth: string; format: string }[];
 }
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
 
 const DOCS_KEY = "scribeai-documents";
 const EVALS_KEY = "scribeai-evaluations";
+const IMPORTED_KEY = "scribeai-imported";
 
 const loadDocs = (): GeneratedDocument[] => {
   try {
@@ -61,42 +80,35 @@ const loadDocs = (): GeneratedDocument[] => {
     return JSON.parse(saved).map((d: any) => ({
       ...d,
       createdAt: new Date(d.createdAt),
-      chatHistory: (d.chatHistory || []).map((c: any) => ({
-        ...c,
-        timestamp: new Date(c.timestamp),
-      })),
+      chatHistory: (d.chatHistory || []).map((c: any) => ({ ...c, timestamp: new Date(c.timestamp) })),
     }));
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 };
 
 const loadEvals = (): Evaluation[] => {
   try {
     const saved = localStorage.getItem(EVALS_KEY);
     if (!saved) return [];
-    return JSON.parse(saved).map((e: any) => ({
-      ...e,
-      createdAt: new Date(e.createdAt),
+    return JSON.parse(saved).map((e: any) => ({ ...e, createdAt: new Date(e.createdAt), answersContent: e.answersContent || "" }));
+  } catch { return []; }
+};
+
+const loadImported = (): ImportedDocument[] => {
+  try {
+    const saved = localStorage.getItem(IMPORTED_KEY);
+    if (!saved) return [];
+    return JSON.parse(saved).map((d: any) => ({
+      ...d,
+      createdAt: new Date(d.createdAt),
+      chatHistory: (d.chatHistory || []).map((c: any) => ({ ...c, timestamp: new Date(c.timestamp) })),
     }));
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 };
 
 export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [documents, setDocuments] = useState<GeneratedDocument[]>(loadDocs);
   const [evaluations, setEvaluations] = useState<Evaluation[]>(loadEvals);
-
-  const saveDocs = (docs: GeneratedDocument[]) => {
-    setDocuments(docs);
-    localStorage.setItem(DOCS_KEY, JSON.stringify(docs));
-  };
-
-  const saveEvals = (evals: Evaluation[]) => {
-    setEvaluations(evals);
-    localStorage.setItem(EVALS_KEY, JSON.stringify(evals));
-  };
+  const [importedDocuments, setImportedDocuments] = useState<ImportedDocument[]>(loadImported);
 
   const addDocument = useCallback((doc: GeneratedDocument) => {
     setDocuments((prev) => {
@@ -129,19 +141,17 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   const addChatMessage = useCallback((docId: string, message: ChatMessage) => {
     setDocuments((prev) => {
-      const next = prev.map((d) =>
-        d.id === docId ? { ...d, chatHistory: [...d.chatHistory, message] } : d
-      );
+      const next = prev.map((d) => d.id === docId ? { ...d, chatHistory: [...d.chatHistory, message] } : d);
       localStorage.setItem(DOCS_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
 
   const getAllChats = useCallback(() => {
-    return documents
-      .flatMap((d) => d.chatHistory)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-  }, [documents]);
+    const genChats = documents.flatMap((d) => d.chatHistory);
+    const impChats = importedDocuments.flatMap((d) => d.chatHistory);
+    return [...genChats, ...impChats].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }, [documents, importedDocuments]);
 
   const addEvaluation = useCallback((eval_: Evaluation) => {
     setEvaluations((prev) => {
@@ -159,21 +169,48 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
+  const addImportedDocument = useCallback((doc: ImportedDocument) => {
+    setImportedDocuments((prev) => {
+      const next = [doc, ...prev];
+      localStorage.setItem(IMPORTED_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const deleteImportedDocument = useCallback((id: string) => {
+    setImportedDocuments((prev) => {
+      const next = prev.filter((d) => d.id !== id);
+      localStorage.setItem(IMPORTED_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const getImportedDocument = useCallback(
+    (id: string) => importedDocuments.find((d) => d.id === id),
+    [importedDocuments]
+  );
+
+  const addImportedChatMessage = useCallback((docId: string, message: ChatMessage) => {
+    setImportedDocuments((prev) => {
+      const next = prev.map((d) => d.id === docId ? { ...d, chatHistory: [...d.chatHistory, message] } : d);
+      localStorage.setItem(IMPORTED_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const getAllDocumentsForEval = useCallback(() => {
+    const gen = documents.map(d => ({ id: d.id, title: d.title, content: d.content, depth: d.depth, format: d.format }));
+    const imp = importedDocuments.map(d => ({ id: d.id, title: d.title, content: d.content, depth: "intermediaire", format: "imported" }));
+    return [...gen, ...imp];
+  }, [documents, importedDocuments]);
+
   return (
-    <DocumentContext.Provider
-      value={{
-        documents,
-        addDocument,
-        deleteDocument,
-        renameDocument,
-        getDocument,
-        addChatMessage,
-        getAllChats,
-        evaluations,
-        addEvaluation,
-        deleteEvaluation,
-      }}
-    >
+    <DocumentContext.Provider value={{
+      documents, addDocument, deleteDocument, renameDocument, getDocument,
+      addChatMessage, getAllChats, evaluations, addEvaluation, deleteEvaluation,
+      importedDocuments, addImportedDocument, deleteImportedDocument,
+      getImportedDocument, addImportedChatMessage, getAllDocumentsForEval,
+    }}>
       {children}
     </DocumentContext.Provider>
   );

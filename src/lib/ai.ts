@@ -6,7 +6,7 @@ interface AIRequest {
   systemPrompt?: string;
 }
 
-export async function callAI(request: AIRequest): Promise<string> {
+async function callAIOnce(request: AIRequest): Promise<string> {
   const { data, error } = await supabase.functions.invoke("cohere-ai", {
     body: request,
   });
@@ -23,17 +23,37 @@ export async function callAI(request: AIRequest): Promise<string> {
   return data?.content || "";
 }
 
+export async function callAI(request: AIRequest, maxRetries = 3): Promise<string> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await callAIOnce(request);
+      if (result && result.trim().length > 0) return result;
+      throw new Error("Empty response from AI");
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`AI call attempt ${attempt + 1}/${maxRetries} failed:`, err.message);
+      
+      if (err.message?.includes("402") || err.message?.includes("Credits")) throw err;
+      
+      if (attempt < maxRetries - 1) {
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      }
+    }
+  }
+  
+  throw lastError || new Error("AI call failed after retries");
+}
+
 export function buildGenerateSystemPrompt(
-  level: string,
-  format: string,
-  depth: string,
-  pages: number | null,
-  language: string
+  level: string, format: string, depth: string,
+  pages: number | null, language: string, referenceContent?: string
 ): string {
   const lang = language === "en" ? "English" : "French";
   const targetPages = pages || getDefaultPages(format, depth);
 
-  return `You are Prisca, an expert educational content writer. You write in ${lang}.
+  let prompt = `You are Prisca, an expert educational content writer. You write in ${lang}.
 You must generate content adapted to the "${level}" academic level.
 The document format is "${format}".
 The depth level is "${depth}".
@@ -54,9 +74,15 @@ FORMATTING RULES:
 - Write long, well-structured paragraphs that fully develop each idea.
 - Include relevant dates, historical context, and real-world examples.
 - Add concrete illustrations, case studies, and practical applications.
-- Include a clear table of contents at the beginning.
 - Each section must be thoroughly developed — never superficial.
-- The content MUST fill the target page count. Write extensively.`;
+- The content MUST fill the target page count. Write extensively.
+- NEVER cut content short. Always write the FULL requested amount.`;
+
+  if (referenceContent) {
+    prompt += `\n\nREFERENCE DOCUMENTS (use this information to enrich the content):\n${referenceContent.slice(0, 15000)}`;
+  }
+
+  return prompt;
 }
 
 function getDepthInstructions(depth: string, lang: string): string {
@@ -103,8 +129,7 @@ function getDepthInstructions(depth: string, lang: string): string {
 - Études de cas approfondies avec analyse complète
 - Prospective et tendances futures
 - Le document doit être une RÉFÉRENCE exhaustive sur le sujet`;
-      default:
-        return "";
+      default: return "";
     }
   } else {
     switch (depth) {
@@ -149,8 +174,7 @@ function getDepthInstructions(depth: string, lang: string): string {
 - In-depth case studies with complete analysis
 - Future prospects and trends
 - The document must be an EXHAUSTIVE reference on the subject`;
-      default:
-        return "";
+      default: return "";
     }
   }
 }
@@ -170,31 +194,65 @@ export function buildChatSystemPrompt(documentContent: string, language: string)
   return `You are an AI tutor helping a student understand a document. Answer questions in ${lang}.
 Here is the document content for context:
 
-${documentContent.slice(0, 8000)}
+${documentContent.slice(0, 12000)}
 
 Answer questions precisely based on the document. If the question goes beyond the document, explain clearly while relating back to the document's content.`;
 }
 
+export function buildImportedDocChatPrompt(documentContent: string, language: string): string {
+  const lang = language === "en" ? "English" : "French";
+  return `You are an AI assistant analyzing a document. Answer EXCLUSIVELY in ${lang}.
+
+CRITICAL RULES:
+- You must ONLY answer based on the document content provided below.
+- You can reason, deduce, and infer, but EVERYTHING must be grounded in the document.
+- If the answer is not in the document, say so clearly.
+- Never make up information not present in the document.
+
+DOCUMENT CONTENT:
+${documentContent.slice(0, 15000)}`;
+}
+
 export function buildEvaluationSystemPrompt(
-  documentContent: string,
-  depth: string,
-  language: string
+  documentContent: string, depth: string, language: string,
+  questionType: string, questionCount: number, qcmPercent: number, qroPercent: number
 ): string {
   const lang = language === "en" ? "English" : "French";
-  return `You are Prisca, an expert educational evaluator. Generate an evaluation document in ${lang}.
-Based on the following document content, create a comprehensive evaluation with:
-1. Multiple choice questions (MCQ)
-2. Short answer questions
-3. Essay/analysis questions
-4. True/False questions
-5. Fill-in-the-blank questions
+  const isFr = language === "fr";
 
-The evaluation depth should match "${depth}" level.
-Use markdown formatting.
-Include an answer key at the end.
+  let typeInstructions = "";
+  if (questionType === "qcm") {
+    typeInstructions = isFr
+      ? `Générez UNIQUEMENT des questions à choix multiples (QCM). Chaque question doit avoir 4 options (A, B, C, D) avec une seule bonne réponse.`
+      : `Generate ONLY multiple choice questions (MCQ). Each question must have 4 options (A, B, C, D) with one correct answer.`;
+  } else if (questionType === "qro") {
+    typeInstructions = isFr
+      ? `Générez UNIQUEMENT des questions à réponses ouvertes (QRO). Les réponses attendues doivent être détaillées.`
+      : `Generate ONLY open-ended questions (OEQ). Expected answers should be detailed.`;
+  } else {
+    typeInstructions = isFr
+      ? `Générez ${Math.round(questionCount * qcmPercent / 100)} questions à choix multiples (QCM, 4 options A/B/C/D) et ${Math.round(questionCount * qroPercent / 100)} questions à réponses ouvertes (QRO).`
+      : `Generate ${Math.round(questionCount * qcmPercent / 100)} multiple choice questions (MCQ, 4 options A/B/C/D) and ${Math.round(questionCount * qroPercent / 100)} open-ended questions (OEQ).`;
+  }
+
+  return `You are Prisca, an expert educational evaluator. Generate an evaluation document in ${lang}.
+
+REQUIREMENTS:
+- Generate exactly ${questionCount} questions total.
+- ${typeInstructions}
+- The evaluation depth should match "${depth}" level.
+- Use markdown formatting.
+- Number all questions clearly.
+
+STRUCTURE:
+1. First, write the EVALUATION with all questions (without answers).
+2. Then write a clear separator: "---ANSWERS---"
+3. Then write the COMPLETE ANSWER KEY with detailed explanations for each question.
+
+${isFr ? "Pour les QCM, indiquez la bonne réponse et expliquez pourquoi. Pour les QRO, fournissez une réponse modèle complète." : "For MCQs, indicate the correct answer and explain why. For OEQs, provide a complete model answer."}
 
 Document content:
-${documentContent.slice(0, 8000)}`;
+${documentContent.slice(0, 12000)}`;
 }
 
 export function generatePDF(title: string, content: string): void {
@@ -204,7 +262,7 @@ export function generatePDF(title: string, content: string): void {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const contentWidth = pageWidth - margin * 2;
-    const lineHeight = 7; // ~1.5 spacing
+    const lineHeight = 7;
     let pageNum = 1;
 
     const addPageNumber = () => {
@@ -230,38 +288,31 @@ export function generatePDF(title: string, content: string): void {
     titleLines.forEach((line: string, i: number) => {
       doc.text(line, pageWidth / 2, titleY + i * 12, { align: "center" });
     });
-
-    // Underline title
     const lastTitleY = titleY + (titleLines.length - 1) * 12 + 4;
     doc.setDrawColor(0, 128, 128);
     doc.setLineWidth(0.8);
     doc.line(margin + 20, lastTitleY, pageWidth - margin - 20, lastTitleY);
-
     doc.setFontSize(10);
     doc.setFont("helvetica", "italic");
     doc.setTextColor(100, 100, 100);
     doc.text("Prisca · Généré par IA", pageWidth / 2, lastTitleY + 15, { align: "center" });
     doc.setTextColor(0, 0, 0);
-
     addPageNumber();
     doc.addPage();
     pageNum++;
 
-    // Content
     let y = margin + 10;
     const lines = content.split("\n");
 
     for (const rawLine of lines) {
       const trimmed = rawLine.trim();
 
-      // Heading detection
       if (trimmed.startsWith("######")) {
         if (y > pageHeight - 40) y = addNewPage();
         y += 3;
         doc.setFontSize(10);
         doc.setFont("helvetica", "bold");
-        const text = trimmed.replace(/^#{1,6}\s*/, "");
-        doc.text(text, margin, y);
+        doc.text(trimmed.replace(/^#{1,6}\s*/, ""), margin, y);
         y += lineHeight + 1;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
@@ -270,8 +321,7 @@ export function generatePDF(title: string, content: string): void {
         y += 4;
         doc.setFontSize(11);
         doc.setFont("helvetica", "bold");
-        const text = trimmed.replace(/^#{1,6}\s*/, "");
-        doc.text(text, margin, y);
+        doc.text(trimmed.replace(/^#{1,6}\s*/, ""), margin, y);
         y += lineHeight + 1;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
@@ -280,8 +330,7 @@ export function generatePDF(title: string, content: string): void {
         y += 5;
         doc.setFontSize(11);
         doc.setFont("helvetica", "bolditalic");
-        const text = trimmed.replace(/^#{1,6}\s*/, "");
-        doc.text(text, margin, y);
+        doc.text(trimmed.replace(/^#{1,6}\s*/, ""), margin, y);
         y += lineHeight + 2;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
@@ -292,7 +341,6 @@ export function generatePDF(title: string, content: string): void {
         doc.setFont("helvetica", "bold");
         const text = trimmed.replace(/^#{1,6}\s*/, "");
         doc.text(text, margin, y);
-        // Underline
         const tw = doc.getTextWidth(text);
         doc.setDrawColor(0, 128, 128);
         doc.setLineWidth(0.3);
@@ -306,13 +354,11 @@ export function generatePDF(title: string, content: string): void {
         doc.setFontSize(14);
         doc.setFont("helvetica", "bold");
         const text = trimmed.replace(/^#{1,6}\s*/, "");
-        const centeredX = pageWidth / 2;
-        doc.text(text, centeredX, y, { align: "center" });
-        // Underline centered
+        doc.text(text, pageWidth / 2, y, { align: "center" });
         const tw = doc.getTextWidth(text);
         doc.setDrawColor(0, 128, 128);
         doc.setLineWidth(0.5);
-        doc.line(centeredX - tw / 2, y + 2, centeredX + tw / 2, y + 2);
+        doc.line(pageWidth / 2 - tw / 2, y + 2, pageWidth / 2 + tw / 2, y + 2);
         y += lineHeight + 4;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
@@ -339,54 +385,71 @@ export function generatePDF(title: string, content: string): void {
       } else if (trimmed === "") {
         y += 4;
       } else {
-        // Normal paragraph text - justified
         doc.setFontSize(11);
         doc.setFont("helvetica", "normal");
-
-        // Clean markdown
         let text = trimmed
           .replace(/\*\*(.+?)\*\*/g, "$1")
           .replace(/\*(.+?)\*/g, "$1")
           .replace(/`(.+?)`/g, "$1")
           .replace(/^[-*]\s/, "• ");
-
         const splitLines = doc.splitTextToSize(text, contentWidth);
         for (const sLine of splitLines) {
-          if (y > pageHeight - 30) {
-            y = addNewPage();
-          }
+          if (y > pageHeight - 30) y = addNewPage();
           doc.text(sLine, margin, y, { maxWidth: contentWidth });
           y += lineHeight;
         }
       }
     }
-
     addPageNumber();
     doc.save(`${title.replace(/[^a-zA-Z0-9À-ÿ\s]/g, "").slice(0, 50)}.pdf`);
   });
 }
 
-// Generate content in chunks by sections
+export async function checkContentAppropriate(content: string, language: string): Promise<{ ok: boolean; theme: string }> {
+  const isFr = language === "fr";
+  const response = await callAI({
+    action: "check_content",
+    messages: [{
+      role: "user",
+      content: `Analyze the following document excerpt and:
+1. Identify the main theme/subject in 2-5 words.
+2. Check if the content contains erotic, sexual, partisan political, or other inappropriate content.
+
+Respond in this exact format:
+THEME: [theme]
+APPROPRIATE: [YES or NO]
+
+Document excerpt:
+${content.slice(0, 3000)}`
+    }],
+    systemPrompt: `You are a content moderator. Respond concisely in ${isFr ? "French" : "English"}.`,
+  }, 2);
+
+  const themeMatch = response.match(/THEME:\s*(.+)/i);
+  const appropriateMatch = response.match(/APPROPRIATE:\s*(YES|NO)/i);
+  
+  return {
+    theme: themeMatch?.[1]?.trim() || (isFr ? "Non déterminé" : "Undetermined"),
+    ok: appropriateMatch?.[1]?.toUpperCase() !== "NO",
+  };
+}
+
 export async function generateDocumentChunked(
-  topic: string,
-  level: string,
-  format: string,
-  depth: string,
-  pages: number | null,
-  language: string,
-  tableOfContents: string,
-  onProgress: (progress: number, step: string) => void
+  topic: string, level: string, format: string, depth: string,
+  pages: number | null, language: string, tableOfContents: string,
+  onProgress: (progress: number, step: string) => void,
+  referenceContent?: string
 ): Promise<{ toc: string; content: string }> {
-  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language);
+  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent);
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
 
-  // Step 1: Generate TOC (10%)
-  onProgress(5, isFr ? "Génération de la table des matières..." : "Generating table of contents...");
+  // Step 1: Generate TOC (5-10%)
+  onProgress(5, isFr ? `Analyse et structuration : ${topic.slice(0, 50)}...` : `Analyzing and structuring: ${topic.slice(0, 50)}...`);
 
   const tocPrompt = tableOfContents
-    ? `Generate a detailed table of contents for a document about "${topic}" based on these guidelines:\n${tableOfContents}\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. List ONLY the table of contents, one entry per line, with the section numbers.`
-    : `Generate a detailed table of contents for a document about "${topic}".\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. List ONLY the table of contents, one entry per line, with the section numbers.`;
+    ? `Generate a detailed table of contents for a document about "${topic}" based on these guidelines:\n${tableOfContents}\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. List ONLY the table of contents, one entry per line, with section numbers.`
+    : `Generate a detailed table of contents for a document about "${topic}".\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. For ${targetPages} pages, you need at least ${Math.max(5, Math.ceil(targetPages / 10))} major sections. List ONLY the table of contents, one entry per line, with section numbers.`;
 
   const toc = await callAI({
     action: "generate_toc",
@@ -394,19 +457,16 @@ export async function generateDocumentChunked(
     systemPrompt,
   });
 
-  onProgress(10, isFr ? "Table des matières créée" : "Table of contents created");
+  onProgress(10, isFr ? "Structure créée" : "Structure created");
 
   // Parse sections from TOC
   const tocLines = toc.split("\n").filter((l) => l.trim().length > 0);
-  // Group into major sections (lines starting with a number or # that aren't subsections)
   const majorSections: string[] = [];
   let currentGroup: string[] = [];
 
   for (const line of tocLines) {
     const trimmed = line.trim();
-    // Detect major section (starts with single digit or #)
-    const isMajor = /^(\d+[\.\)]|#{1,2}\s|[IVXLC]+[\.\)])/.test(trimmed) &&
-      !/^(\d+\.\d+|#{3,})/.test(trimmed);
+    const isMajor = /^(\d+[\.\)]|#{1,2}\s|[IVXLC]+[\.\)])/.test(trimmed) && !/^(\d+\.\d+|#{3,})/.test(trimmed);
     if (isMajor && currentGroup.length > 0) {
       majorSections.push(currentGroup.join("\n"));
       currentGroup = [trimmed];
@@ -416,7 +476,6 @@ export async function generateDocumentChunked(
   }
   if (currentGroup.length > 0) majorSections.push(currentGroup.join("\n"));
 
-  // If too few sections, just split evenly
   const sections = majorSections.length >= 2 ? majorSections : tocLines.reduce<string[][]>((acc, line, i) => {
     const chunkIdx = Math.floor(i / Math.max(1, Math.ceil(tocLines.length / 5)));
     if (!acc[chunkIdx]) acc[chunkIdx] = [];
@@ -424,39 +483,58 @@ export async function generateDocumentChunked(
     return acc;
   }, []).map(group => group.join("\n"));
 
-  // Step 2: Generate content section by section (10% - 95%)
+  // Step 2: Generate content section by section (10-95%)
   const totalSections = sections.length;
   let fullContent = "";
-  const conversationHistory: { role: string; content: string }[] = [];
 
   for (let i = 0; i < totalSections; i++) {
     const sectionToc = sections[i];
     const progress = 10 + ((i / totalSections) * 85);
-    const sectionLabel = sectionToc.split("\n")[0].trim().slice(0, 60);
+    const sectionName = sectionToc.split("\n")[0].trim().replace(/^[\d#.\)\-]+\s*/, "").slice(0, 80);
+    
     onProgress(
       progress,
-      `${isFr ? "Rédaction de la section" : "Writing section"} ${i + 1}/${totalSections}: ${sectionLabel}...`
+      `${isFr ? "Rédaction section" : "Writing section"} ${i + 1}/${totalSections} : ${sectionName}`
     );
 
-    const pagesPerSection = Math.max(2, Math.round(targetPages / totalSections));
+    const pagesPerSection = Math.max(3, Math.round(targetPages / totalSections));
+    const wordsPerSection = pagesPerSection * 500;
 
     const sectionPrompt = i === 0
-      ? `Write the content for the following section(s) of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${pagesPerSection} pages (~${pagesPerSection * 500} words) for this section. Be thorough and detailed according to the depth level. Use proper markdown headings.`
-      : `Continue writing the document about "${topic}". Now write the content for:\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${pagesPerSection} pages (~${pagesPerSection * 500} words). Continue from where you left off. Maintain the same style and depth level. Use proper markdown headings.`;
+      ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${wordsPerSection} words for this section. Be thorough and detailed. Use proper markdown headings. NEVER be brief or superficial.`
+      : `Continue writing the document about "${topic}". Now write the COMPLETE and DETAILED content for:\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${wordsPerSection} words. Continue from where you left off. Maintain the same style and depth level. Use proper markdown headings. NEVER be brief or superficial.`;
 
-    conversationHistory.push({ role: "user", content: sectionPrompt });
+    try {
+      const sectionContent = await callAI({
+        action: "generate_section",
+        messages: [{ role: "user", content: sectionPrompt }],
+        systemPrompt,
+      });
 
-    const sectionContent = await callAI({
-      action: "generate_section",
-      messages: conversationHistory.slice(-4), // Keep last 4 messages for context
-      systemPrompt,
-    });
+      fullContent += (i > 0 ? "\n\n" : "") + sectionContent;
+    } catch (err) {
+      console.error(`Section ${i + 1} failed:`, err);
+      // Try once more with a simpler prompt
+      try {
+        const simplePrompt = `Write detailed content about: ${sectionToc}\n\nTopic: "${topic}". Write at least ${Math.round(wordsPerSection / 2)} words. Use markdown headings.`;
+        const fallbackContent = await callAI({
+          action: "generate_section_retry",
+          messages: [{ role: "user", content: simplePrompt }],
+          systemPrompt,
+        });
+        fullContent += (i > 0 ? "\n\n" : "") + fallbackContent;
+      } catch (retryErr) {
+        console.error(`Section ${i + 1} retry also failed:`, retryErr);
+        fullContent += (i > 0 ? "\n\n" : "") + `## ${sectionName}\n\n*[Section generation failed. Please regenerate this section.]*`;
+      }
+    }
 
-    conversationHistory.push({ role: "assistant", content: sectionContent });
-    fullContent += (i > 0 ? "\n\n" : "") + sectionContent;
+    // Small delay between sections to avoid rate limiting
+    if (i < totalSections - 1) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
 
   onProgress(98, isFr ? "Finalisation du document..." : "Finalizing document...");
-
   return { toc, content: fullContent };
 }

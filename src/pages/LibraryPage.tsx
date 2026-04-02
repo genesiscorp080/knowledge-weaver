@@ -1,34 +1,23 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, FileText, BookOpen, GraduationCap, BookMarked, Check, X } from "lucide-react";
+import { Search, BookOpen, Check, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import DocMenu from "@/components/DocMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments } from "@/contexts/DocumentContext";
 import { generatePDF } from "@/lib/ai";
-
-const formatIcons: Record<string, typeof FileText> = {
-  article: FileText,
-  support: BookMarked,
-  cours: GraduationCap,
-  livre: BookOpen,
-};
-
-const formatColors: Record<string, string> = {
-  article: "bg-primary/10 text-primary",
-  support: "bg-accent/15 text-accent-foreground",
-  cours: "bg-primary/10 text-primary",
-  livre: "bg-accent/15 text-accent-foreground",
-};
+import { estimatePageCount } from "@/lib/pdfUtils";
+import pdfIcon from "@/assets/icone_pdf.png";
 
 const LibraryPage = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { documents, deleteDocument, renameDocument } = useDocuments();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const isFr = language === "fr";
 
   const filteredDocs = documents.filter(d =>
     d.title.toLowerCase().includes(search.toLowerCase())
@@ -57,14 +46,12 @@ const LibraryPage = () => {
         <div className="space-y-3">
           <AnimatePresence>
             {filteredDocs.map((doc, i) => {
-              const Icon = formatIcons[doc.format] || FileText;
+              const realPages = estimatePageCount(doc.content);
               return (
                 <motion.div key={doc.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -100 }} transition={{ delay: i * 0.05 }}
                   className="glass-card p-4 cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate(`/document/${doc.id}`)}>
                   <div className="flex items-start gap-3">
-                    <div className={`rounded-xl p-2.5 shrink-0 ${formatColors[doc.format] || "bg-secondary"}`}>
-                      <Icon size={20} />
-                    </div>
+                    <img src={pdfIcon} alt="PDF" className="w-10 h-10 object-contain shrink-0" />
                     <div className="flex-1 min-w-0">
                       {editingId === doc.id ? (
                         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -75,11 +62,15 @@ const LibraryPage = () => {
                       ) : (
                         <p className="text-sm font-semibold truncate">{doc.title}</p>
                       )}
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="chip chip-inactive text-[10px] py-0.5 px-2">{doc.format}</span>
                         <span className="text-[10px] text-muted-foreground">{t(`level.${doc.level}`)}</span>
                         <span className="text-[10px] text-muted-foreground">·</span>
-                        <span className="text-[10px] text-muted-foreground">{doc.pages} {t("home.pages")}</span>
+                        <span className="text-[10px] text-muted-foreground">{realPages} {t("home.pages")}</span>
+                        <span className="text-[10px] text-muted-foreground">·</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(doc.createdAt).toLocaleDateString(isFr ? "fr-FR" : "en-US")}
+                        </span>
                       </div>
                     </div>
                     <div onClick={(e) => e.stopPropagation()}>

@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Download } from "lucide-react";
+import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Download, Upload, X } from "lucide-react";
 import StatusBar from "@/components/StatusBar";
 import GenerationOverlay from "@/components/GenerationOverlay";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments, GeneratedDocument } from "@/contexts/DocumentContext";
 import { generateDocumentChunked, generatePDF } from "@/lib/ai";
+import { extractPdfText, estimatePageCount } from "@/lib/pdfUtils";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 
@@ -57,6 +58,9 @@ const HomePage = () => {
   const [generationStep, setGenerationStep] = useState("");
   const [generatedContent, setGeneratedContent] = useState<string | null>(null);
   const [generatedTitle, setGeneratedTitle] = useState("");
+  const [referenceFiles, setReferenceFiles] = useState<{ name: string; content: string }[]>([]);
+  const refFileRef = useRef<HTMLInputElement>(null);
+  const isFr = language === "fr";
 
   const allowedFormats = depthFormatRestrictions[depth] || formats.map(f => f.value);
   const selectedFormat = formats.find(f => f.value === format);
@@ -67,6 +71,30 @@ const HomePage = () => {
     if (!newAllowed.includes(format)) setFormat("");
   };
 
+  const handleAddReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (let i = 0; i < files.length; i++) {
+      if (referenceFiles.length >= 5) {
+        toast.error(isFr ? "Maximum 5 documents de référence" : "Maximum 5 reference documents");
+        break;
+      }
+      const file = files[i];
+      if (file.type !== "application/pdf") {
+        toast.error(isFr ? "Seuls les PDF sont autorisés" : "Only PDFs allowed");
+        continue;
+      }
+      try {
+        const { text } = await extractPdfText(file);
+        setReferenceFiles(prev => [...prev, { name: file.name, content: text }]);
+      } catch {
+        toast.error(`${isFr ? "Erreur lecture" : "Read error"}: ${file.name}`);
+      }
+    }
+    if (refFileRef.current) refFileRef.current.value = "";
+  };
+
   const handleGenerate = async () => {
     if (!topic || !level || !format) return;
     setIsGenerating(true);
@@ -74,16 +102,22 @@ const HomePage = () => {
     setGenerationProgress(0);
 
     try {
+      const refContent = referenceFiles.length > 0
+        ? referenceFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 5000)}`).join("\n\n")
+        : undefined;
+
       const { toc, content } = await generateDocumentChunked(
         topic, level, format, depth, customPages, language, tableOfContents,
         (progress, step) => {
           setGenerationProgress(progress);
           setGenerationStep(step);
-        }
+        },
+        refContent
       );
 
-      const fullContent = `# ${topic}\n\n## ${language === "fr" ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${content}`;
+      const fullContent = `# ${topic}\n\n## ${isFr ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${content}`;
       const title = topic.length > 60 ? topic.slice(0, 57) + "..." : topic;
+      const realPages = estimatePageCount(fullContent);
 
       const doc: GeneratedDocument = {
         id: crypto.randomUUID(),
@@ -92,7 +126,7 @@ const HomePage = () => {
         format,
         level,
         depth,
-        pages: customPages || (selectedFormat?.minPages || 10),
+        pages: realPages,
         content: fullContent,
         tableOfContents: toc,
         createdAt: new Date(),
@@ -103,7 +137,7 @@ const HomePage = () => {
       setGenerationProgress(100);
       setGeneratedContent(fullContent);
       setGeneratedTitle(title);
-      toast.success(language === "fr" ? "Document généré avec succès !" : "Document generated successfully!");
+      toast.success(isFr ? "Document généré avec succès !" : "Document generated successfully!");
     } catch (error) {
       console.error("Generation error:", error);
       toast.error(t("common.error"));
@@ -111,12 +145,6 @@ const HomePage = () => {
       setIsGenerating(false);
       setGenerationStep("");
       setGenerationProgress(0);
-    }
-  };
-
-  const handleDownloadPDF = () => {
-    if (generatedContent && generatedTitle) {
-      generatePDF(generatedTitle, generatedContent);
     }
   };
 
@@ -208,6 +236,27 @@ const HomePage = () => {
           </motion.div>
         )}
 
+        {/* Reference PDFs */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
+          <input ref={refFileRef} type="file" accept=".pdf" multiple onChange={handleAddReference} className="hidden" />
+          <button onClick={() => refFileRef.current?.click()} className="text-xs font-semibold text-primary flex items-center gap-1">
+            <Upload size={12} /> {isFr ? "Ajouter des documents de référence (1-5 PDF)" : "Add reference documents (1-5 PDFs)"}
+          </button>
+          {referenceFiles.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {referenceFiles.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 bg-secondary/60 rounded-lg px-3 py-2">
+                  <FileText size={12} className="text-primary shrink-0" />
+                  <span className="text-xs truncate flex-1">{f.name}</span>
+                  <button onClick={() => setReferenceFiles(prev => prev.filter((_, idx) => idx !== i))}>
+                    <X size={12} className="text-muted-foreground" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+
         {/* Advanced */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <button onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs font-semibold text-primary flex items-center gap-1">
@@ -235,16 +284,15 @@ const HomePage = () => {
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-5 mb-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="section-title">{generatedTitle}</h3>
-              <button onClick={handleDownloadPDF} className="btn-secondary flex items-center gap-2">
-                <Download size={14} />
-                PDF
+              <button onClick={() => generatePDF(generatedTitle, generatedContent)} className="btn-secondary flex items-center gap-2">
+                <Download size={14} /> PDF
               </button>
             </div>
             <div className="prose prose-sm max-w-none text-foreground prose-headings:font-display prose-headings:text-foreground prose-p:text-muted-foreground max-h-[300px] overflow-y-auto">
               <ReactMarkdown>{generatedContent.slice(0, 2000)}</ReactMarkdown>
               {generatedContent.length > 2000 && (
                 <p className="text-xs text-muted-foreground italic mt-2">
-                  {language === "fr" ? "... Voir le document complet dans la bibliothèque" : "... See full document in library"}
+                  {isFr ? "... Voir le document complet dans la bibliothèque" : "... See full document in library"}
                 </p>
               )}
             </div>

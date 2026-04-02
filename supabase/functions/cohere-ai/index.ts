@@ -12,10 +12,10 @@ serve(async (req) => {
   }
 
   try {
-    const COHERE_API_KEY = Deno.env.get("COHERE_API_KEY");
-    if (!COHERE_API_KEY) {
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
       return new Response(
-        JSON.stringify({ error: "COHERE_API_KEY is not configured" }),
+        JSON.stringify({ error: "LOVABLE_API_KEY is not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -29,53 +29,73 @@ serve(async (req) => {
       );
     }
 
-    const cohereMessages = [];
-    
+    const allMessages = [];
     if (systemPrompt) {
-      cohereMessages.push({ role: "system", content: systemPrompt });
+      allMessages.push({ role: "system", content: systemPrompt });
     }
-
     for (const msg of messages) {
-      cohereMessages.push({ role: msg.role, content: msg.content });
+      allMessages.push({ role: msg.role, content: msg.content });
     }
 
-    const response = await fetch("https://api.cohere.com/v2/chat", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${COHERE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "command-a-03-2025",
-        messages: cohereMessages,
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Cohere API error:", response.status, errorText);
-      return new Response(
-        JSON.stringify({ error: `Cohere API error: ${response.status}` }),
-        { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    try {
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: allMessages,
+        }),
+        signal: controller.signal,
+      });
 
-    const data = await response.json();
-    
-    // Extract text content from Cohere response
-    let textContent = "";
-    if (data.message?.content) {
-      for (const block of data.message.content) {
-        if (block.type === "text") {
-          textContent += block.text;
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("AI gateway error:", response.status, errorText);
+        
+        if (response.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Rate limited. Please wait a moment and try again." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
+        if (response.status === 402) {
+          return new Response(
+            JSON.stringify({ error: "Credits exhausted. Please add funds." }),
+            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        return new Response(
+          JSON.stringify({ error: `AI error: ${response.status}` }),
+          { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
-    }
 
-    return new Response(
-      JSON.stringify({ content: textContent }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+      const data = await response.json();
+      const textContent = data.choices?.[0]?.message?.content || "";
+
+      return new Response(
+        JSON.stringify({ content: textContent }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      if (fetchError.name === 'AbortError') {
+        return new Response(
+          JSON.stringify({ error: "Request timed out. Please try again." }),
+          { status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      throw fetchError;
+    }
   } catch (e) {
     console.error("Edge function error:", e);
     return new Response(
