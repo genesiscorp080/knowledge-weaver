@@ -8,13 +8,16 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { DocumentProvider } from "@/contexts/DocumentContext";
+import { ProfileProvider } from "@/contexts/ProfileContext";
 import BottomNav from "@/components/BottomNav";
 import SplashScreen from "@/components/SplashScreen";
 import HomePage from "./pages/HomePage";
 import LibraryPage from "./pages/LibraryPage";
 import LearningPage from "./pages/LearningPage";
+import OthersPage from "./pages/OthersPage";
 import EvaluationsPage from "./pages/EvaluationsPage";
 import SettingsPage from "./pages/SettingsPage";
+import ProfilePage from "./pages/ProfilePage";
 import DocumentViewerPage from "./pages/DocumentViewerPage";
 import NotFound from "./pages/NotFound";
 
@@ -34,25 +37,29 @@ const App = () => {
         <LanguageProvider>
           <NotificationProvider>
             <DocumentProvider>
-              <TooltipProvider>
-                <Toaster />
-                <Sonner />
-                <SplashScreen show={showSplash} />
-                <BrowserRouter>
-                  <div className="max-w-md mx-auto relative bg-background min-h-screen">
-                    <Routes>
-                      <Route path="/" element={<HomePage />} />
-                      <Route path="/library" element={<LibraryPage />} />
-                      <Route path="/learning" element={<LearningPage />} />
-                      <Route path="/evaluations" element={<EvaluationsPage />} />
-                      <Route path="/settings" element={<SettingsPage />} />
-                      <Route path="/document/:id" element={<DocumentViewerPage />} />
-                      <Route path="*" element={<NotFound />} />
-                    </Routes>
-                    <BottomNav />
-                  </div>
-                </BrowserRouter>
-              </TooltipProvider>
+              <ProfileProvider>
+                <TooltipProvider>
+                  <Toaster />
+                  <Sonner />
+                  <SplashScreen show={showSplash} />
+                  <BrowserRouter>
+                    <div className="max-w-md mx-auto relative bg-background min-h-screen">
+                      <Routes>
+                        <Route path="/" element={<HomePage />} />
+                        <Route path="/library" element={<LibraryPage />} />
+                        <Route path="/learning" element={<LearningPage />} />
+                        <Route path="/others" element={<OthersPage />} />
+                        <Route path="/evaluations" element={<EvaluationsPage />} />
+                        <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="/profile" element={<ProfilePage />} />
+                        <Route path="/document/:id" element={<DocumentViewerPage />} />
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                      <BottomNav />
+                    </div>
+                  </BrowserRouter>
+                </TooltipProvider>
+              </ProfileProvider>
             </DocumentProvider>
           </NotificationProvider>
         </LanguageProvider>
