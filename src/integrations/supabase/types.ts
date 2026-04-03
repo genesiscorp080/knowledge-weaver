@@ -14,7 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          age_range: string | null
+          created_at: string | null
+          default_level: string | null
+          email: string | null
+          gender: string | null
+          generations_this_week: number | null
+          id: string
+          is_vip: boolean | null
+          last_generation_week: string | null
+          last_question_date: string | null
+          name: string | null
+          photo_url: string | null
+          questions_today: number | null
+          vip_expires_at: string | null
+          vip_plan: string | null
+        }
+        Insert: {
+          age_range?: string | null
+          created_at?: string | null
+          default_level?: string | null
+          email?: string | null
+          gender?: string | null
+          generations_this_week?: number | null
+          id: string
+          is_vip?: boolean | null
+          last_generation_week?: string | null
+          last_question_date?: string | null
+          name?: string | null
+          photo_url?: string | null
+          questions_today?: number | null
+          vip_expires_at?: string | null
+          vip_plan?: string | null
+        }
+        Update: {
+          age_range?: string | null
+          created_at?: string | null
+          default_level?: string | null
+          email?: string | null
+          gender?: string | null
+          generations_this_week?: number | null
+          id?: string
+          is_vip?: boolean | null
+          last_generation_week?: string | null
+          last_question_date?: string | null
+          name?: string | null
+          photo_url?: string | null
+          questions_today?: number | null
+          vip_expires_at?: string | null
+          vip_plan?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

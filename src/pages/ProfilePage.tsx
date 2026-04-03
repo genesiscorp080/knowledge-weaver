@@ -2,9 +2,8 @@ import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Camera, User, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import StatusBar from "@/components/StatusBar";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useProfile } from "@/contexts/ProfileContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 const levels = [
@@ -22,11 +21,12 @@ const ageRanges = ["6-11", "12-15", "16-20", "21-25", "26-35", "36-45", "45+"];
 const ProfilePage = () => {
   const navigate = useNavigate();
   const { t, language } = useLanguage();
-  const { profile, updateProfile } = useProfile();
-  const [name, setName] = useState(profile.name);
-  const [defaultLevel, setDefaultLevel] = useState(profile.defaultLevel);
-  const [gender, setGender] = useState(profile.gender);
-  const [ageRange, setAgeRange] = useState(profile.ageRange);
+  const { profile, updateProfile } = useAuth();
+  const [name, setName] = useState(profile?.name || "");
+  const [defaultLevel, setDefaultLevel] = useState(profile?.default_level || "licence");
+  const [gender, setGender] = useState(profile?.gender || "homme");
+  const [ageRange, setAgeRange] = useState(profile?.age_range || "21-25");
+  const [photoPreview, setPhotoPreview] = useState(profile?.photo_url || "");
   const photoRef = useRef<HTMLInputElement>(null);
   const isFr = language === "fr";
 
@@ -36,13 +36,19 @@ const ProfilePage = () => {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result as string;
-      updateProfile({ photo: result });
+      setPhotoPreview(result);
     };
     reader.readAsDataURL(file);
   };
 
-  const handleSave = () => {
-    updateProfile({ name, defaultLevel, gender, ageRange });
+  const handleSave = async () => {
+    await updateProfile({
+      name,
+      default_level: defaultLevel,
+      gender,
+      age_range: ageRange,
+      photo_url: photoPreview || null,
+    });
     toast.success(isFr ? "Profil mis à jour !" : "Profile updated!");
     navigate(-1);
   };
@@ -67,8 +73,8 @@ const ProfilePage = () => {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-3 pt-4">
           <div className="relative">
             <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border-2 border-primary/30">
-              {profile.photo ? (
-                <img src={profile.photo} alt="Profile" className="w-full h-full object-cover" />
+              {photoPreview ? (
+                <img src={photoPreview} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <User size={36} className="text-primary" />
               )}
@@ -98,8 +104,8 @@ const ProfilePage = () => {
           </label>
           <div className="flex gap-3">
             {[
-              { value: "homme" as const, label: isFr ? "Homme" : "Male" },
-              { value: "femme" as const, label: isFr ? "Femme" : "Female" },
+              { value: "homme", label: isFr ? "Homme" : "Male" },
+              { value: "femme", label: isFr ? "Femme" : "Female" },
             ].map(g => (
               <button key={g.value} onClick={() => setGender(g.value)}
                 className={`flex-1 h-12 rounded-xl text-sm font-semibold transition-all ${gender === g.value ? "bg-primary text-primary-foreground shadow-md" : "bg-secondary text-muted-foreground"}`}>

@@ -12,10 +12,10 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
+    const COHERE_API_KEY = Deno.env.get("COHERE_API_KEY");
+    if (!COHERE_API_KEY) {
       return new Response(
-        JSON.stringify({ error: "LOVABLE_API_KEY is not configured" }),
+        JSON.stringify({ error: "COHERE_API_KEY is not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -29,27 +29,28 @@ serve(async (req) => {
       );
     }
 
-    const allMessages = [];
+    // Build Cohere v2 messages format
+    const cohereMessages: any[] = [];
     if (systemPrompt) {
-      allMessages.push({ role: "system", content: systemPrompt });
+      cohereMessages.push({ role: "system", content: systemPrompt });
     }
     for (const msg of messages) {
-      allMessages.push({ role: msg.role, content: msg.content });
+      cohereMessages.push({ role: msg.role === "assistant" ? "assistant" : "user", content: msg.content });
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
+    const timeout = setTimeout(() => controller.abort(), 180000); // 3 min timeout
 
     try {
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const response = await fetch("https://api.cohere.com/v2/chat", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          Authorization: `Bearer ${COHERE_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: allMessages,
+          model: "command-a-03-2025",
+          messages: cohereMessages,
         }),
         signal: controller.signal,
       });
@@ -58,29 +59,24 @@ serve(async (req) => {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("AI gateway error:", response.status, errorText);
-        
+        console.error("Cohere API error:", response.status, errorText);
+
         if (response.status === 429) {
           return new Response(
             JSON.stringify({ error: "Rate limited. Please wait a moment and try again." }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
-        if (response.status === 402) {
-          return new Response(
-            JSON.stringify({ error: "Credits exhausted. Please add funds." }),
-            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        
+
         return new Response(
-          JSON.stringify({ error: `AI error: ${response.status}` }),
+          JSON.stringify({ error: `Cohere error: ${response.status} - ${errorText.slice(0, 200)}` }),
           { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
       const data = await response.json();
-      const textContent = data.choices?.[0]?.message?.content || "";
+      // Cohere v2 response format
+      const textContent = data.message?.content?.[0]?.text || "";
 
       return new Response(
         JSON.stringify({ content: textContent }),
@@ -88,7 +84,7 @@ serve(async (req) => {
       );
     } catch (fetchError) {
       clearTimeout(timeout);
-      if (fetchError.name === 'AbortError') {
+      if (fetchError.name === "AbortError") {
         return new Response(
           JSON.stringify({ error: "Request timed out. Please try again." }),
           { status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" } }

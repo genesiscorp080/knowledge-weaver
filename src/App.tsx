@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -8,20 +8,59 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { DocumentProvider } from "@/contexts/DocumentContext";
-import { ProfileProvider } from "@/contexts/ProfileContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import BottomNav from "@/components/BottomNav";
+import VipBadge from "@/components/VipBadge";
 import SplashScreen from "@/components/SplashScreen";
+import AuthPage from "./pages/AuthPage";
 import HomePage from "./pages/HomePage";
 import LibraryPage from "./pages/LibraryPage";
 import LearningPage from "./pages/LearningPage";
-import OthersPage from "./pages/OthersPage";
+import ImportsPage from "./pages/OthersPage";
 import EvaluationsPage from "./pages/EvaluationsPage";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
 import DocumentViewerPage from "./pages/DocumentViewerPage";
+import HelpFaqPage from "./pages/HelpFaqPage";
+import VipPage from "./pages/VipPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+
+const ProtectedRoutes = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="mobile-container flex items-center justify-center min-h-screen">
+        <div className="animate-spin w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full" />
+      </div>
+    );
+  }
+
+  if (!user) return <AuthPage />;
+
+  return (
+    <>
+      <VipBadge />
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/library" element={<LibraryPage />} />
+        <Route path="/learning" element={<LearningPage />} />
+        <Route path="/imports" element={<ImportsPage />} />
+        <Route path="/evaluations" element={<EvaluationsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/document/:id" element={<DocumentViewerPage />} />
+        <Route path="/help" element={<HelpFaqPage />} />
+        <Route path="/vip" element={<VipPage />} />
+        <Route path="/others" element={<Navigate to="/imports" replace />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      <BottomNav />
+    </>
+  );
+};
 
 const App = () => {
   const [showSplash, setShowSplash] = useState(true);
@@ -37,29 +76,20 @@ const App = () => {
         <LanguageProvider>
           <NotificationProvider>
             <DocumentProvider>
-              <ProfileProvider>
+              <AuthProvider>
                 <TooltipProvider>
                   <Toaster />
                   <Sonner />
                   <SplashScreen show={showSplash} />
-                  <BrowserRouter>
-                    <div className="max-w-md mx-auto relative bg-background min-h-screen">
-                      <Routes>
-                        <Route path="/" element={<HomePage />} />
-                        <Route path="/library" element={<LibraryPage />} />
-                        <Route path="/learning" element={<LearningPage />} />
-                        <Route path="/others" element={<OthersPage />} />
-                        <Route path="/evaluations" element={<EvaluationsPage />} />
-                        <Route path="/settings" element={<SettingsPage />} />
-                        <Route path="/profile" element={<ProfilePage />} />
-                        <Route path="/document/:id" element={<DocumentViewerPage />} />
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
-                      <BottomNav />
-                    </div>
-                  </BrowserRouter>
+                  {!showSplash && (
+                    <BrowserRouter>
+                      <div className="max-w-md mx-auto relative bg-background min-h-screen">
+                        <ProtectedRoutes />
+                      </div>
+                    </BrowserRouter>
+                  )}
                 </TooltipProvider>
-              </ProfileProvider>
+              </AuthProvider>
             </DocumentProvider>
           </NotificationProvider>
         </LanguageProvider>
