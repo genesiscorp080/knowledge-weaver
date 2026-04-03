@@ -126,7 +126,7 @@ const HomePage = () => {
 
       const { toc, content } = await generateDocumentChunked(
         topic, level, format, depth, customPages, language, tableOfContents,
-        (progress, step, sectionIdx, totalSections) => {
+        (progress: number, step: string) => {
           setGenerationProgress(Math.min(98, progress));
           setGenerationStep(step);
           
