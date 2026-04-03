@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, Send, Loader2, X, MessageCircle, Trash2 } from "lucide-react";
+import { Upload, FileText, Send, Loader2, X, MessageCircle } from "lucide-react";
 import StatusBar from "@/components/StatusBar";
+import DocMenu from "@/components/DocMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useDocuments, ImportedDocument, ChatMessage } from "@/contexts/DocumentContext";
 import { callAI, buildImportedDocChatPrompt, checkContentAppropriate } from "@/lib/ai";
 import { extractPdfText } from "@/lib/pdfUtils";
@@ -10,8 +12,9 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import pdfIcon from "@/assets/icone_pdf.png";
 
-const OthersPage = () => {
+const ImportsPage = () => {
   const { t, language } = useLanguage();
+  const { canAskQuestion, recordQuestion } = useAuth();
   const { importedDocuments, addImportedDocument, deleteImportedDocument, addImportedChatMessage } = useDocuments();
   const [isImporting, setIsImporting] = useState(false);
   const [importStep, setImportStep] = useState("");
@@ -40,12 +43,10 @@ const OthersPage = () => {
     setImportProgress(0);
 
     try {
-      // Step 1: Import
       setImportStep(isFr ? "Importation du fichier..." : "Importing file...");
       setImportProgress(20);
       await new Promise(r => setTimeout(r, 500));
 
-      // Step 2: Extract text
       setImportStep(isFr ? "Vérification de la lisibilité..." : "Verifying readability...");
       setImportProgress(40);
       const { text, pageCount } = await extractPdfText(file);
@@ -57,16 +58,14 @@ const OthersPage = () => {
       }
 
       setImportProgress(60);
-
-      // Step 3: Check theme
       setImportStep(isFr ? "Analyse du contenu et vérification du thème..." : "Analyzing content and verifying theme...");
       setImportProgress(75);
       const { ok, theme } = await checkContentAppropriate(text, language);
 
       if (!ok) {
         toast.error(isFr
-          ? "Ce document contient du contenu inapproprié (érotique, politique partisan, etc.) et ne peut pas être importé."
-          : "This document contains inappropriate content (erotic, partisan political, etc.) and cannot be imported.");
+          ? "Ce document contient du contenu inapproprié et ne peut pas être importé."
+          : "This document contains inappropriate content and cannot be imported.");
         setIsImporting(false);
         return;
       }
@@ -102,6 +101,11 @@ const OthersPage = () => {
   const handleSendMessage = async () => {
     if (!chatInput.trim() || isSending || !selectedDoc) return;
 
+    if (!canAskQuestion()) {
+      toast.error(t("limits.questionLimit"));
+      return;
+    }
+
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -117,6 +121,7 @@ const OthersPage = () => {
     setIsSending(true);
 
     try {
+      await recordQuestion();
       const systemPrompt = buildImportedDocChatPrompt(selectedDoc.content, language);
       const messages = [
         ...selectedDoc.chatHistory.map(m => ({ role: m.role, content: m.content })),
@@ -148,7 +153,7 @@ const OthersPage = () => {
   if (isImporting) {
     return (
       <div className="mobile-container">
-        <StatusBar title={isFr ? "Autres" : "Others"} />
+        <StatusBar title={isFr ? "Imports" : "Imports"} />
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-md">
           <div className="flex flex-col items-center gap-6 px-8">
             <div className="relative w-28 h-28">
@@ -168,12 +173,6 @@ const OthersPage = () => {
               <motion.div className="h-full bg-primary rounded-full" animate={{ width: `${importProgress}%` }} />
             </div>
             <p className="text-sm font-medium text-muted-foreground text-center">{importStep}</p>
-            <div className="flex gap-2">
-              {[0, 1, 2].map(i => (
-                <motion.div key={i} className="w-2 h-2 rounded-full bg-primary/60"
-                  animate={{ y: [0, -8, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.2 }} />
-              ))}
-            </div>
           </div>
         </div>
       </div>
@@ -198,7 +197,7 @@ const OthersPage = () => {
         <div className="pt-16 pb-24 px-5 space-y-3">
           <div className="glass-card p-3 text-center">
             <p className="text-xs text-muted-foreground">
-              {isFr ? `Thème détecté : ${selectedDoc.theme} · ${selectedDoc.pageCount} pages` : `Detected theme: ${selectedDoc.theme} · ${selectedDoc.pageCount} pages`}
+              {isFr ? `Thème : ${selectedDoc.theme} · ${selectedDoc.pageCount} pages` : `Theme: ${selectedDoc.theme} · ${selectedDoc.pageCount} pages`}
             </p>
           </div>
 
@@ -246,7 +245,7 @@ const OthersPage = () => {
 
   return (
     <div className="mobile-container">
-      <StatusBar title={isFr ? "Autres" : "Others"} />
+      <StatusBar title={isFr ? "Imports" : "Imports"} />
       <div className="page-content space-y-5">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
           <h2 className="font-display text-2xl font-bold">{isFr ? "Documents importés" : "Imported Documents"}</h2>
@@ -286,23 +285,26 @@ const OthersPage = () => {
                     <p className="text-sm font-semibold truncate">{doc.title}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="chip chip-inactive text-[10px] py-0.5 px-2">{doc.theme}</span>
-                      <span className="text-[10px] text-muted-foreground">{doc.pageCount} {isFr ? "pages" : "pages"}</span>
+                      <span className="text-[10px] text-muted-foreground">{doc.pageCount} pages</span>
                       <span className="text-[10px] text-muted-foreground">·</span>
                       <span className="text-[10px] text-muted-foreground">
-                        {doc.createdAt.toLocaleDateString(language === "fr" ? "fr-FR" : "en-US")}
+                        {new Date(doc.createdAt).toLocaleDateString(isFr ? "fr-FR" : "en-US")}
                       </span>
                     </div>
                     {doc.chatHistory.length > 0 && (
                       <div className="flex items-center gap-1 mt-1">
                         <MessageCircle size={10} className="text-primary" />
-                        <span className="text-[10px] text-primary">{doc.chatHistory.length} {isFr ? "messages" : "messages"}</span>
+                        <span className="text-[10px] text-primary">{doc.chatHistory.length} messages</span>
                       </div>
                     )}
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); deleteImportedDocument(doc.id); }}
-                    className="p-2 rounded-lg hover:bg-destructive/10 transition-colors">
-                    <Trash2 size={14} className="text-destructive" />
-                  </button>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <DocMenu
+                      onDelete={() => deleteImportedDocument(doc.id)}
+                      onRename={() => {}}
+                      onDownload={() => {}}
+                    />
+                  </div>
                 </div>
               </motion.div>
             ))}
@@ -327,4 +329,4 @@ const OthersPage = () => {
   );
 };
 
-export default OthersPage;
+export default ImportsPage;

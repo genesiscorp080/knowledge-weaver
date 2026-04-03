@@ -1,10 +1,12 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Download, Upload, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import GenerationOverlay from "@/components/GenerationOverlay";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments, GeneratedDocument } from "@/contexts/DocumentContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { generateDocumentChunked, generatePDF } from "@/lib/ai";
 import { extractPdfText, estimatePageCount } from "@/lib/pdfUtils";
 import { toast } from "sonner";
@@ -44,6 +46,8 @@ const depthFormatRestrictions: Record<string, string[]> = {
 const HomePage = () => {
   const { t, language } = useLanguage();
   const { addDocument } = useDocuments();
+  const { canGenerate, recordGeneration } = useAuth();
+  const navigate = useNavigate();
   const [topic, setTopic] = useState("");
   const [level, setLevel] = useState("");
   const [format, setFormat] = useState("");
@@ -56,10 +60,14 @@ const HomePage = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStep, setGenerationStep] = useState("");
+  const [pagesGenerated, setPagesGenerated] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [estimatedTimeLeft, setEstimatedTimeLeft] = useState("");
   const [generatedContent, setGeneratedContent] = useState<string | null>(null);
   const [generatedTitle, setGeneratedTitle] = useState("");
   const [referenceFiles, setReferenceFiles] = useState<{ name: string; content: string }[]>([]);
   const refFileRef = useRef<HTMLInputElement>(null);
+  const generationStartRef = useRef<number>(0);
   const isFr = language === "fr";
 
   const allowedFormats = depthFormatRestrictions[depth] || formats.map(f => f.value);
@@ -74,7 +82,6 @@ const HomePage = () => {
   const handleAddReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
     for (let i = 0; i < files.length; i++) {
       if (referenceFiles.length >= 5) {
         toast.error(isFr ? "Maximum 5 documents de référence" : "Maximum 5 reference documents");
@@ -97,9 +104,20 @@ const HomePage = () => {
 
   const handleGenerate = async () => {
     if (!topic || !level || !format) return;
+
+    if (!canGenerate()) {
+      toast.error(t("limits.genLimit"));
+      navigate("/vip");
+      return;
+    }
+
     setIsGenerating(true);
     setGeneratedContent(null);
     setGenerationProgress(0);
+    setPagesGenerated(0);
+    const targetPages = customPages || 15;
+    setTotalPages(targetPages);
+    generationStartRef.current = Date.now();
 
     try {
       const refContent = referenceFiles.length > 0
@@ -108,9 +126,25 @@ const HomePage = () => {
 
       const { toc, content } = await generateDocumentChunked(
         topic, level, format, depth, customPages, language, tableOfContents,
-        (progress, step) => {
-          setGenerationProgress(progress);
+        (progress, step, sectionIdx, totalSections) => {
+          setGenerationProgress(Math.min(98, progress));
           setGenerationStep(step);
+          
+          // Estimate pages generated
+          const estPages = Math.round((progress / 100) * targetPages);
+          setPagesGenerated(estPages);
+          
+          // Estimate time remaining
+          const elapsed = (Date.now() - generationStartRef.current) / 1000;
+          if (progress > 5) {
+            const totalEst = (elapsed / progress) * 100;
+            const remaining = Math.max(0, totalEst - elapsed);
+            if (remaining > 60) {
+              setEstimatedTimeLeft(`~${Math.round(remaining / 60)} min`);
+            } else {
+              setEstimatedTimeLeft(`~${Math.round(remaining)}s`);
+            }
+          }
         },
         refContent
       );
@@ -134,7 +168,9 @@ const HomePage = () => {
       };
 
       addDocument(doc);
+      await recordGeneration();
       setGenerationProgress(100);
+      setPagesGenerated(realPages);
       setGeneratedContent(fullContent);
       setGeneratedTitle(title);
       toast.success(isFr ? "Document généré avec succès !" : "Document generated successfully!");
@@ -145,6 +181,7 @@ const HomePage = () => {
       setIsGenerating(false);
       setGenerationStep("");
       setGenerationProgress(0);
+      setEstimatedTimeLeft("");
     }
   };
 
@@ -153,7 +190,14 @@ const HomePage = () => {
   return (
     <div className="mobile-container">
       <StatusBar title="Prisca" />
-      <GenerationOverlay show={isGenerating} progress={generationProgress} step={generationStep} />
+      <GenerationOverlay
+        show={isGenerating}
+        progress={generationProgress}
+        step={generationStep}
+        pagesGenerated={pagesGenerated}
+        totalPages={totalPages}
+        estimatedTimeLeft={estimatedTimeLeft}
+      />
       <div className="page-content space-y-5">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
           <h2 className="font-display text-2xl font-bold text-foreground">{t("home.title")}</h2>
