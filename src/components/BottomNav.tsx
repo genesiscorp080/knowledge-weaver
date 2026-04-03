@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { Home, Library, GraduationCap, FolderUp, ClipboardCheck, Settings } from "lucide-react";
+import { Home, Library, GraduationCap, FolderDown, ClipboardCheck, Settings } from "lucide-react";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -12,12 +12,13 @@ const BottomNav = () => {
     { path: "/", icon: Home, labelKey: "nav.home" },
     { path: "/library", icon: Library, labelKey: "nav.library" },
     { path: "/learning", icon: GraduationCap, labelKey: "nav.learning" },
-    { path: "/others", icon: FolderUp, labelKey: "nav.others" },
+    { path: "/imports", icon: FolderDown, labelKey: "nav.imports" },
     { path: "/evaluations", icon: ClipboardCheck, labelKey: "nav.evaluations" },
     { path: "/settings", icon: Settings, labelKey: "nav.settings" },
   ];
 
-  if (location.pathname.startsWith("/document/") || location.pathname === "/profile") return null;
+  const hiddenPaths = ["/document/", "/profile", "/help", "/vip"];
+  if (hiddenPaths.some(p => location.pathname.startsWith(p))) return null;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50">
