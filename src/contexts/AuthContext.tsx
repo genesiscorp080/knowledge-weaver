@@ -4,6 +4,8 @@ import type { User, Session } from "@supabase/supabase-js";
 
 const PREMIUM_EMAILS = ["genesiscorp080@gmail.com", "juniormanfouo45@gmail.com"];
 
+export type SubscriptionType = "free" | "standard" | "evolution" | "vip" | "gold";
+
 interface UserProfile {
   name: string;
   email: string;
@@ -18,6 +20,7 @@ interface UserProfile {
   last_generation_week: string | null;
   questions_today: number;
   last_question_date: string | null;
+  subscription_type: SubscriptionType;
 }
 
 interface AuthContextType {
@@ -26,6 +29,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   isVip: boolean;
+  subscriptionType: SubscriptionType;
   signUp: (email: string, password: string, name: string, gender: string, ageRange: string, defaultLevel: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -34,7 +38,11 @@ interface AuthContextType {
   canAskQuestion: () => boolean;
   recordGeneration: () => Promise<void>;
   recordQuestion: () => Promise<void>;
-  activateVip: (plan: "yearly" | "lifetime") => Promise<void>;
+  activateSubscription: (type: SubscriptionType, plan: "yearly" | "lifetime") => Promise<void>;
+  getMaxConcurrent: () => number;
+  getWeeklyLimit: () => number;
+  getEncyclopediaWeeklyLimit: () => number;
+  canAccessEncyclopedia: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -57,21 +65,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const isPremiumEmail = (email: string) => PREMIUM_EMAILS.includes(email.toLowerCase());
-  
-  const isVip = profile ? (
-    profile.is_vip || 
-    isPremiumEmail(profile.email) ||
-    (profile.vip_plan === "lifetime") ||
-    (profile.vip_plan === "yearly" && profile.vip_expires_at && new Date(profile.vip_expires_at) > new Date())
-  ) : false;
+
+  const getEffectiveSubscription = (): SubscriptionType => {
+    if (!profile) return "free";
+    if (isPremiumEmail(profile.email)) return "gold";
+    if (!profile.subscription_type || profile.subscription_type === "free") {
+      // Legacy VIP check
+      if (profile.is_vip) return "vip";
+      return "free";
+    }
+    // Check expiration for yearly plans
+    if (profile.vip_plan === "yearly" && profile.vip_expires_at) {
+      if (new Date(profile.vip_expires_at) <= new Date()) return "free";
+    }
+    return profile.subscription_type;
+  };
+
+  const subscriptionType = getEffectiveSubscription();
+  const isVip = ["standard", "evolution", "vip", "gold"].includes(subscriptionType);
 
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-    
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
     if (data && !error) {
       setProfile({
         name: data.name || "",
@@ -87,6 +101,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         last_generation_week: data.last_generation_week,
         questions_today: data.questions_today || 0,
         last_question_date: data.last_question_date,
+        subscription_type: (data as any).subscription_type || "free",
       });
     }
   };
@@ -106,9 +121,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      }
+      if (session?.user) fetchProfile(session.user.id);
       setLoading(false);
     });
 
@@ -116,24 +129,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signUp = async (email: string, password: string, name: string, gender: string, ageRange: string, defaultLevel: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name } },
-    });
-
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { name } } });
     if (error) return { error: error.message };
-
     if (data.user) {
-      // Update profile with extra data
-      await supabase.from("profiles").update({
-        name,
-        gender,
-        age_range: ageRange,
-        default_level: defaultLevel,
-      }).eq("id", data.user.id);
+      await supabase.from("profiles").update({ name, gender, age_range: ageRange, default_level: defaultLevel }).eq("id", data.user.id);
     }
-
     return { error: null };
   };
 
@@ -145,9 +145,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
-    setProfile(null);
+    setUser(null); setSession(null); setProfile(null);
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
@@ -158,17 +156,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (updates.age_range !== undefined) dbUpdates.age_range = updates.age_range;
     if (updates.default_level !== undefined) dbUpdates.default_level = updates.default_level;
     if (updates.photo_url !== undefined) dbUpdates.photo_url = updates.photo_url;
-
     await supabase.from("profiles").update(dbUpdates).eq("id", user.id);
     setProfile(prev => prev ? { ...prev, ...updates } : null);
   };
 
+  const getWeeklyLimit = (): number => {
+    switch (subscriptionType) {
+      case "free": return 1;
+      case "standard": return 20;
+      case "evolution": return 50;
+      case "vip": case "gold": return Infinity;
+      default: return 1;
+    }
+  };
+
+  const getMaxConcurrent = (): number => {
+    switch (subscriptionType) {
+      case "free": case "standard": return 1;
+      case "evolution": return 2;
+      case "vip": case "gold": return 3;
+      default: return 1;
+    }
+  };
+
+  const getEncyclopediaWeeklyLimit = (): number => {
+    switch (subscriptionType) {
+      case "evolution": return 1;
+      case "vip": return 3;
+      case "gold": return Infinity;
+      default: return 0;
+    }
+  };
+
+  const canAccessEncyclopedia = (): boolean => {
+    return ["evolution", "vip", "gold"].includes(subscriptionType);
+  };
+
   const canGenerate = () => {
     if (!profile) return false;
-    if (isVip) return true;
+    const limit = getWeeklyLimit();
+    if (limit === Infinity) return true;
     const currentWeek = getCurrentWeek();
-    if (profile.last_generation_week !== currentWeek) return true;
-    return profile.generations_this_week < 1;
+    const count = profile.last_generation_week !== currentWeek ? 0 : profile.generations_this_week;
+    return count < limit;
   };
 
   const canAskQuestion = () => {
@@ -183,12 +213,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!user || !profile) return;
     const currentWeek = getCurrentWeek();
     const newCount = profile.last_generation_week === currentWeek ? profile.generations_this_week + 1 : 1;
-    
-    await supabase.from("profiles").update({
-      generations_this_week: newCount,
-      last_generation_week: currentWeek,
-    }).eq("id", user.id);
-
+    await supabase.from("profiles").update({ generations_this_week: newCount, last_generation_week: currentWeek }).eq("id", user.id);
     setProfile(prev => prev ? { ...prev, generations_this_week: newCount, last_generation_week: currentWeek } : null);
   };
 
@@ -196,22 +221,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!user || !profile) return;
     const today = getToday();
     const newCount = profile.last_question_date === today ? profile.questions_today + 1 : 1;
-
-    await supabase.from("profiles").update({
-      questions_today: newCount,
-      last_question_date: today,
-    }).eq("id", user.id);
-
+    await supabase.from("profiles").update({ questions_today: newCount, last_question_date: today }).eq("id", user.id);
     setProfile(prev => prev ? { ...prev, questions_today: newCount, last_question_date: today } : null);
   };
 
-  const activateVip = async (plan: "yearly" | "lifetime") => {
+  const activateSubscription = async (type: SubscriptionType, plan: "yearly" | "lifetime") => {
     if (!user) return;
-    const updates: any = { is_vip: true, vip_plan: plan };
+    const updates: any = { is_vip: type !== "free", vip_plan: plan, subscription_type: type };
     if (plan === "yearly") {
       const expires = new Date();
       expires.setFullYear(expires.getFullYear() + 1);
       updates.vip_expires_at = expires.toISOString();
+    } else {
+      updates.vip_expires_at = null;
     }
     await supabase.from("profiles").update(updates).eq("id", user.id);
     setProfile(prev => prev ? { ...prev, ...updates } : null);
@@ -219,9 +241,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{
-      user, session, profile, loading, isVip,
+      user, session, profile, loading, isVip, subscriptionType,
       signUp, signIn, signOut, updateProfile,
-      canGenerate, canAskQuestion, recordGeneration, recordQuestion, activateVip,
+      canGenerate, canAskQuestion, recordGeneration, recordQuestion,
+      activateSubscription, getMaxConcurrent, getWeeklyLimit, getEncyclopediaWeeklyLimit, canAccessEncyclopedia,
     }}>
       {children}
     </AuthContext.Provider>

@@ -34,9 +34,7 @@ export async function callAI(request: AIRequest, maxRetries = 3): Promise<string
     } catch (err: any) {
       lastError = err;
       console.warn(`AI call attempt ${attempt + 1}/${maxRetries} failed:`, err.message);
-      
       if (err.message?.includes("402") || err.message?.includes("Credits")) throw err;
-      
       if (attempt < maxRetries - 1) {
         await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
       }
@@ -68,6 +66,7 @@ FORMAT GUIDELINES:
 - support: Educational with clear examples, diagrams described textually, moderate formality. 10-100 pages.
 - cours: Very educational with many detailed examples, illustrations described in text, practice exercises, case studies. 15-100 pages.
 - livre: Narrative, comprehensive, formal yet engaging, with chapters, foreword, conclusion. 100-500 pages.
+- encyclopedie: Exhaustive encyclopedia-style. Complete, authoritative, with cross-references. 200-1200 pages.
 
 FORMATTING RULES:
 - Use markdown with proper heading hierarchy (# for title, ## for chapters, ### for sections, #### for subsections).
@@ -76,7 +75,13 @@ FORMATTING RULES:
 - Add concrete illustrations, case studies, and practical applications.
 - Each section must be thoroughly developed — never superficial.
 - The content MUST fill the target page count. Write extensively.
-- NEVER cut content short. Always write the FULL requested amount.`;
+- NEVER cut content short. Always write the FULL requested amount.
+
+BIBLIOGRAPHIC REFERENCES:
+At the very end of the document, include a section "## Références Bibliographiques" (or "## Bibliographic References" in English) with:
+- At least 5 relevant academic or authoritative references
+- Include books, journal articles, and web resources where applicable
+- Format: Author (Year). Title. Publisher/URL.`;
 
   if (referenceContent) {
     prompt += `\n\nREFERENCE DOCUMENTS (use this information to enrich the content):\n${referenceContent.slice(0, 15000)}`;
@@ -134,46 +139,13 @@ function getDepthInstructions(depth: string, lang: string): string {
   } else {
     switch (depth) {
       case "bas":
-        return `LOW DEPTH: Cover the core concept clearly and simply.
-- Define key terms simply
-- Give 1-2 examples per concept
-- Stay factual and direct`;
+        return `LOW DEPTH: Cover the core concept clearly and simply.`;
       case "intermediaire":
-        return `INTERMEDIATE DEPTH: Develop the concept AND related topics in depth.
-- Each paragraph should be at least 8-10 lines, fully developing each idea
-- Include historical dates, names of important researchers/thinkers
-- Give 3-5 concrete examples per major concept
-- Make connections between different aspects of the subject
-- Include comparisons and analogies for better understanding
-- Develop historical context and evolution of ideas
-- Add citations from recognized sources
-- Present different perspectives and viewpoints`;
+        return `INTERMEDIATE DEPTH: Develop the concept AND related topics in depth with 8-10 line paragraphs, historical dates, 3-5 examples per concept.`;
       case "avance":
-        return `ADVANCED DEPTH: Complete and thorough mastery of the subject.
-- Each paragraph should be 10-15 lines minimum with in-depth development
-- SYSTEMATICALLY include: dates, names, places, precise historical contexts
-- Give 5-8 detailed examples per concept, with complete case studies
-- Analyze causes, consequences, short and long-term implications
-- Present academic debates and controversies
-- Include numerical data and statistics when relevant
-- Develop both theoretical AND practical aspects in detail
-- Make interdisciplinary connections
-- Include detailed textual illustrations (described diagrams, comparison tables)
-- Each section should be a complete mini-essay in itself`;
+        return `ADVANCED DEPTH: Complete mastery. 10-15 line paragraphs, systematic dates/names/places, 5-8 detailed examples, case studies, interdisciplinary connections.`;
       case "expert":
-        return `EXPERT DEPTH: TOTAL and EXHAUSTIVE coverage of everything related to the subject.
-- Each paragraph should be 12-20 lines with complete argumentation
-- EVERY claim must be supported by facts, dates, names, sources
-- 8-12 examples per major concept, including rare cases and exceptions
-- In-depth critical analysis of ALL perspectives
-- Complete history of the field's evolution with detailed chronology
-- State of the art of current research
-- Philosophical, ethical, social, economic, and political implications
-- Connections with ALL adjacent and cross-cutting domains
-- Comparison tables, detailed classifications
-- In-depth case studies with complete analysis
-- Future prospects and trends
-- The document must be an EXHAUSTIVE reference on the subject`;
+        return `EXPERT DEPTH: TOTAL EXHAUSTIVE coverage. 12-20 line paragraphs, every claim backed by facts, 8-12 examples, complete critical analysis, state of the art research.`;
       default: return "";
     }
   }
@@ -185,6 +157,7 @@ function getDefaultPages(format: string, depth: string): number {
     support: { bas: 10, intermediaire: 30, avance: 60, expert: 100 },
     cours: { intermediaire: 25, avance: 50, expert: 100 },
     livre: { avance: 150, expert: 300 },
+    encyclopedie: { avance: 300, expert: 600 },
   };
   return matrix[format]?.[depth] || 15;
 }
@@ -405,6 +378,18 @@ export function generatePDF(title: string, content: string): void {
   });
 }
 
+export function estimatePageCount(content: string): number {
+  const lines = content.split('\n');
+  let totalLines = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '') totalLines += 0.5;
+    else if (trimmed.startsWith('#')) totalLines += 3;
+    else totalLines += Math.max(1, Math.ceil(trimmed.length / 80));
+  }
+  return Math.max(1, Math.ceil(totalLines / 35) + 1);
+}
+
 export async function checkContentAppropriate(content: string, language: string): Promise<{ ok: boolean; theme: string }> {
   const isFr = language === "fr";
   const response = await callAI({
@@ -444,7 +429,6 @@ export async function generateDocumentChunked(
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
 
-  // Step 1: Generate TOC (5-10%)
   onProgress(5, isFr ? `Analyse et structuration : ${topic.slice(0, 50)}...` : `Analyzing and structuring: ${topic.slice(0, 50)}...`);
 
   const tocPrompt = tableOfContents
@@ -459,7 +443,6 @@ export async function generateDocumentChunked(
 
   onProgress(10, isFr ? "Structure créée" : "Structure created");
 
-  // Parse sections from TOC
   const tocLines = toc.split("\n").filter((l) => l.trim().length > 0);
   const majorSections: string[] = [];
   let currentGroup: string[] = [];
@@ -483,7 +466,6 @@ export async function generateDocumentChunked(
     return acc;
   }, []).map(group => group.join("\n"));
 
-  // Step 2: Generate content section by section (10-95%)
   const totalSections = sections.length;
   let fullContent = "";
 
@@ -510,11 +492,9 @@ export async function generateDocumentChunked(
         messages: [{ role: "user", content: sectionPrompt }],
         systemPrompt,
       });
-
       fullContent += (i > 0 ? "\n\n" : "") + sectionContent;
     } catch (err) {
       console.error(`Section ${i + 1} failed:`, err);
-      // Try once more with a simpler prompt
       try {
         const simplePrompt = `Write detailed content about: ${sectionToc}\n\nTopic: "${topic}". Write at least ${Math.round(wordsPerSection / 2)} words. Use markdown headings.`;
         const fallbackContent = await callAI({
@@ -529,7 +509,6 @@ export async function generateDocumentChunked(
       }
     }
 
-    // Small delay between sections to avoid rate limiting
     if (i < totalSections - 1) {
       await new Promise(r => setTimeout(r, 1000));
     }
