@@ -7,10 +7,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
-import { DocumentProvider } from "@/contexts/DocumentContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { DocumentProvider } from "@/contexts/DocumentContext";
+import { GenerationProvider } from "@/contexts/GenerationContext";
 import BottomNav from "@/components/BottomNav";
 import VipBadge from "@/components/VipBadge";
+import FloatingProgress from "@/components/FloatingProgress";
 import SplashScreen from "@/components/SplashScreen";
 import AuthPage from "./pages/AuthPage";
 import HomePage from "./pages/HomePage";
@@ -41,24 +43,27 @@ const ProtectedRoutes = () => {
   if (!user) return <AuthPage />;
 
   return (
-    <>
-      <VipBadge />
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/library" element={<LibraryPage />} />
-        <Route path="/learning" element={<LearningPage />} />
-        <Route path="/imports" element={<ImportsPage />} />
-        <Route path="/evaluations" element={<EvaluationsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/document/:id" element={<DocumentViewerPage />} />
-        <Route path="/help" element={<HelpFaqPage />} />
-        <Route path="/vip" element={<VipPage />} />
-        <Route path="/others" element={<Navigate to="/imports" replace />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-      <BottomNav />
-    </>
+    <DocumentProvider>
+      <GenerationProvider>
+        <VipBadge />
+        <FloatingProgress />
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/learning" element={<LearningPage />} />
+          <Route path="/imports" element={<ImportsPage />} />
+          <Route path="/evaluations" element={<EvaluationsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/document/:id" element={<DocumentViewerPage />} />
+          <Route path="/help" element={<HelpFaqPage />} />
+          <Route path="/vip" element={<VipPage />} />
+          <Route path="/others" element={<Navigate to="/imports" replace />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+        <BottomNav />
+      </GenerationProvider>
+    </DocumentProvider>
   );
 };
 
@@ -75,22 +80,20 @@ const App = () => {
       <ThemeProvider>
         <LanguageProvider>
           <NotificationProvider>
-            <DocumentProvider>
-              <AuthProvider>
-                <TooltipProvider>
-                  <Toaster />
-                  <Sonner />
-                  <SplashScreen show={showSplash} />
-                  {!showSplash && (
-                    <BrowserRouter>
-                      <div className="max-w-md mx-auto relative bg-background min-h-screen">
-                        <ProtectedRoutes />
-                      </div>
-                    </BrowserRouter>
-                  )}
-                </TooltipProvider>
-              </AuthProvider>
-            </DocumentProvider>
+            <AuthProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <SplashScreen show={showSplash} />
+                {!showSplash && (
+                  <BrowserRouter>
+                    <div className="max-w-md mx-auto relative bg-background min-h-screen">
+                      <ProtectedRoutes />
+                    </div>
+                  </BrowserRouter>
+                )}
+              </TooltipProvider>
+            </AuthProvider>
           </NotificationProvider>
         </LanguageProvider>
       </ThemeProvider>
