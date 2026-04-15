@@ -1,16 +1,13 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Download, Upload, X } from "lucide-react";
+import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Upload, X, Library } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
-import GenerationOverlay from "@/components/GenerationOverlay";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useDocuments, GeneratedDocument } from "@/contexts/DocumentContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { generateDocumentChunked, generatePDF } from "@/lib/ai";
-import { extractPdfText, estimatePageCount } from "@/lib/pdfUtils";
+import { useGeneration } from "@/contexts/GenerationContext";
+import { extractPdfText } from "@/lib/pdfUtils";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
 
 const levels = [
   { value: "primaire", labelKey: "level.primaire" },
@@ -27,6 +24,7 @@ const formats = [
   { value: "support", labelKey: "format.support", icon: BookMarked, descKey: "format.support.desc", maxPages: 100, minPages: 10 },
   { value: "cours", labelKey: "format.cours", icon: GraduationCap, descKey: "format.cours.desc", maxPages: 100, minPages: 15 },
   { value: "livre", labelKey: "format.livre", icon: BookOpen, descKey: "format.livre.desc", maxPages: 500, minPages: 100 },
+  { value: "encyclopedie", labelKey: "format.encyclopedie", icon: Library, descKey: "format.encyclopedie.desc", maxPages: 1200, minPages: 200 },
 ];
 
 const depths = [
@@ -39,14 +37,14 @@ const depths = [
 const depthFormatRestrictions: Record<string, string[]> = {
   bas: ["article", "support"],
   intermediaire: ["article", "support", "cours"],
-  avance: ["support", "cours", "livre"],
-  expert: ["cours", "livre"],
+  avance: ["support", "cours", "livre", "encyclopedie"],
+  expert: ["cours", "livre", "encyclopedie"],
 };
 
 const HomePage = () => {
   const { t, language } = useLanguage();
-  const { addDocument } = useDocuments();
-  const { canGenerate, recordGeneration } = useAuth();
+  const { canGenerate, canAccessEncyclopedia } = useAuth();
+  const { addJob, hasActiveGenerations } = useGeneration();
   const navigate = useNavigate();
   const [topic, setTopic] = useState("");
   const [level, setLevel] = useState("");
@@ -57,17 +55,8 @@ const HomePage = () => {
   const [tableOfContents, setTableOfContents] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [levelOpen, setLevelOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState(0);
-  const [generationStep, setGenerationStep] = useState("");
-  const [pagesGenerated, setPagesGenerated] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [estimatedTimeLeft, setEstimatedTimeLeft] = useState("");
-  const [generatedContent, setGeneratedContent] = useState<string | null>(null);
-  const [generatedTitle, setGeneratedTitle] = useState("");
   const [referenceFiles, setReferenceFiles] = useState<{ name: string; content: string }[]>([]);
   const refFileRef = useRef<HTMLInputElement>(null);
-  const generationStartRef = useRef<number>(0);
   const isFr = language === "fr";
 
   const allowedFormats = depthFormatRestrictions[depth] || formats.map(f => f.value);
@@ -102,7 +91,7 @@ const HomePage = () => {
     if (refFileRef.current) refFileRef.current.value = "";
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = () => {
     if (!topic || !level || !format) return;
 
     if (!canGenerate()) {
@@ -111,77 +100,26 @@ const HomePage = () => {
       return;
     }
 
-    setIsGenerating(true);
-    setGeneratedContent(null);
-    setGenerationProgress(0);
-    setPagesGenerated(0);
-    const targetPages = customPages || 15;
-    setTotalPages(targetPages);
-    generationStartRef.current = Date.now();
+    if (format === "encyclopedie" && !canAccessEncyclopedia()) {
+      toast.error(isFr ? "Le format Encyclopédie nécessite un abonnement Évolution ou VIP" : "Encyclopedia format requires Evolution or VIP subscription");
+      navigate("/vip");
+      return;
+    }
 
-    try {
-      const refContent = referenceFiles.length > 0
-        ? referenceFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 5000)}`).join("\n\n")
-        : undefined;
+    const refContent = referenceFiles.length > 0
+      ? referenceFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 5000)}`).join("\n\n")
+      : undefined;
 
-      const { toc, content } = await generateDocumentChunked(
-        topic, level, format, depth, customPages, language, tableOfContents,
-        (progress: number, step: string) => {
-          setGenerationProgress(Math.min(98, progress));
-          setGenerationStep(step);
-          
-          // Estimate pages generated
-          const estPages = Math.round((progress / 100) * targetPages);
-          setPagesGenerated(estPages);
-          
-          // Estimate time remaining
-          const elapsed = (Date.now() - generationStartRef.current) / 1000;
-          if (progress > 5) {
-            const totalEst = (elapsed / progress) * 100;
-            const remaining = Math.max(0, totalEst - elapsed);
-            if (remaining > 60) {
-              setEstimatedTimeLeft(`~${Math.round(remaining / 60)} min`);
-            } else {
-              setEstimatedTimeLeft(`~${Math.round(remaining)}s`);
-            }
-          }
-        },
-        refContent
-      );
+    const jobId = addJob({
+      topic, level, format, depth,
+      targetPages: customPages || 15,
+      tableOfContents,
+      referenceContent: refContent,
+    });
 
-      const fullContent = `# ${topic}\n\n## ${isFr ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${content}`;
-      const title = topic.length > 60 ? topic.slice(0, 57) + "..." : topic;
-      const realPages = estimatePageCount(fullContent);
-
-      const doc: GeneratedDocument = {
-        id: crypto.randomUUID(),
-        title,
-        topic,
-        format,
-        level,
-        depth,
-        pages: realPages,
-        content: fullContent,
-        tableOfContents: toc,
-        createdAt: new Date(),
-        chatHistory: [],
-      };
-
-      addDocument(doc);
-      await recordGeneration();
-      setGenerationProgress(100);
-      setPagesGenerated(realPages);
-      setGeneratedContent(fullContent);
-      setGeneratedTitle(title);
-      toast.success(isFr ? "Document généré avec succès !" : "Document generated successfully!");
-    } catch (error) {
-      console.error("Generation error:", error);
-      toast.error(t("common.error"));
-    } finally {
-      setIsGenerating(false);
-      setGenerationStep("");
-      setGenerationProgress(0);
-      setEstimatedTimeLeft("");
+    if (jobId) {
+      toast.success(isFr ? "Document ajouté à la file de génération" : "Document added to generation queue");
+      setTopic("");
     }
   };
 
@@ -190,14 +128,6 @@ const HomePage = () => {
   return (
     <div className="mobile-container">
       <StatusBar title="Prisca" />
-      <GenerationOverlay
-        show={isGenerating}
-        progress={generationProgress}
-        step={generationStep}
-        pagesGenerated={pagesGenerated}
-        totalPages={totalPages}
-        estimatedTimeLeft={estimatedTimeLeft}
-      />
       <div className="page-content space-y-5">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
           <h2 className="font-display text-2xl font-bold text-foreground">{t("home.title")}</h2>
@@ -253,12 +183,14 @@ const HomePage = () => {
             {formats.map((f) => {
               const Icon = f.icon;
               const isAllowed = allowedFormats.includes(f.value);
+              const needsSubscription = f.value === "encyclopedie" && !canAccessEncyclopedia();
               return (
                 <button key={f.value} onClick={() => isAllowed && setFormat(f.value)} disabled={!isAllowed}
                   className={`glass-card p-3 text-left transition-all duration-200 ${format === f.value ? "ring-2 ring-primary bg-primary/5 border-primary/20" : isAllowed ? "hover:bg-secondary/30" : "opacity-30 cursor-not-allowed"}`}>
                   <Icon size={18} className={format === f.value ? "text-primary" : "text-muted-foreground"} />
                   <p className="text-sm font-semibold mt-1.5">{t(f.labelKey)}</p>
                   <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{t(f.descKey)}</p>
+                  {needsSubscription && <p className="text-[9px] text-accent-foreground mt-1">⚡ Évolution+</p>}
                 </button>
               );
             })}
@@ -316,32 +248,12 @@ const HomePage = () => {
 
         {/* Generate */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="pb-4">
-          <button onClick={handleGenerate} disabled={!isValid || isGenerating}
-            className={`btn-primary w-full flex items-center justify-center gap-2 ${!isValid || isGenerating ? "opacity-40 cursor-not-allowed" : ""}`}>
+          <button onClick={handleGenerate} disabled={!isValid}
+            className={`btn-primary w-full flex items-center justify-center gap-2 ${!isValid ? "opacity-40 cursor-not-allowed" : ""}`}>
             <Sparkles size={18} />
             {t("home.generate")}
           </button>
         </motion.div>
-
-        {/* Generated content preview */}
-        {generatedContent && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-5 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="section-title">{generatedTitle}</h3>
-              <button onClick={() => generatePDF(generatedTitle, generatedContent)} className="btn-secondary flex items-center gap-2">
-                <Download size={14} /> PDF
-              </button>
-            </div>
-            <div className="prose prose-sm max-w-none text-foreground prose-headings:font-display prose-headings:text-foreground prose-p:text-muted-foreground max-h-[300px] overflow-y-auto">
-              <ReactMarkdown>{generatedContent.slice(0, 2000)}</ReactMarkdown>
-              {generatedContent.length > 2000 && (
-                <p className="text-xs text-muted-foreground italic mt-2">
-                  {isFr ? "... Voir le document complet dans la bibliothèque" : "... See full document in library"}
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
       </div>
     </div>
   );
