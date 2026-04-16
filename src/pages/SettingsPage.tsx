@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight, FileText, Shield, Crown, X, Lock, Mail } from "lucide-react";
+import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight, FileText, Shield, Crown, X, Lock, Mail, Heart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import { useThemeContext } from "@/contexts/ThemeContext";
