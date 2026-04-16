@@ -114,7 +114,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
               const remaining = Math.max(0, totalEst - elapsed);
               eta = remaining > 60 ? `~${Math.round(remaining / 60)} min` : `~${Math.round(remaining)}s`;
             }
-            return { ...j, progress: Math.min(98, progress), currentStep: step, pagesGenerated: estPages, estimatedTimeLeft: eta, partialContent: content || j.partialContent };
+            return { ...j, progress: Math.min(98, progress), currentStep: step, pagesGenerated: estPages, estimatedTimeLeft: eta };
           }));
         },
         job.referenceContent
