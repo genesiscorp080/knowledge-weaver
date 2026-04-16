@@ -18,6 +18,7 @@ const SettingsPage = () => {
   const navigate = useNavigate();
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showDonation, setShowDonation] = useState(false);
   const isFr = language === "fr";
 
   const settingsGroups = [
