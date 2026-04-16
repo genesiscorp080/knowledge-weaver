@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight, FileText, Shield, Crown, X, Lock, Mail } from "lucide-react";
+import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight, FileText, Shield, Crown, X, Lock, Mail, Heart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import { useThemeContext } from "@/contexts/ThemeContext";
@@ -18,6 +18,7 @@ const SettingsPage = () => {
   const navigate = useNavigate();
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showDonation, setShowDonation] = useState(false);
   const isFr = language === "fr";
 
   const settingsGroups = [
@@ -48,6 +49,12 @@ const SettingsPage = () => {
       items: [
         { icon: FileText, label: t("settings.terms"), desc: t("settings.termsDesc"), action: () => setShowTerms(true) },
         { icon: Shield, label: t("settings.privacy"), desc: t("settings.privacyDesc"), action: () => setShowPrivacy(true) },
+      ],
+    },
+    {
+      title: isFr ? "Soutenir" : "Support",
+      items: [
+        { icon: Heart, label: isFr ? "Faire un don" : "Make a donation", desc: isFr ? "Soutenez le développement de Prisca" : "Support Prisca's development", action: () => setShowDonation(true) },
       ],
     },
     {
@@ -324,6 +331,106 @@ Access, rectify, delete, and export your data via the Application.
 
       {renderLegalModal(showTerms, termsContent, () => setShowTerms(false))}
       {renderLegalModal(showPrivacy, privacyContent, () => setShowPrivacy(false))}
+
+      {/* Donation modal */}
+      <AnimatePresence>
+        {showDonation && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm">
+            <div className="max-w-md mx-auto h-full flex flex-col">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <h3 className="font-display font-semibold">{isFr ? "Faire un don" : "Make a donation"}</h3>
+                <button onClick={() => setShowDonation(false)} className="p-2 rounded-lg hover:bg-secondary">
+                  <X size={18} className="text-muted-foreground" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6">
+                <div className="text-center space-y-2">
+                  <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+                    <Heart size={28} className="text-primary" />
+                  </div>
+                  <h3 className="font-display text-lg font-bold">
+                    {isFr ? "Soutenez Prisca" : "Support Prisca"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {isFr
+                      ? "Votre don aide à maintenir et améliorer Prisca. Chaque contribution compte !"
+                      : "Your donation helps maintain and improve Prisca. Every contribution counts!"}
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    {isFr ? "Méthodes de paiement" : "Payment methods"}
+                  </h4>
+
+                  {/* Orange Money */}
+                  <div className="glass-card p-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                        <span className="text-lg font-bold text-orange-500">OM</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">Orange Money</p>
+                        <p className="text-xs text-muted-foreground">Cameroun</p>
+                      </div>
+                    </div>
+                    <div className="bg-secondary/60 rounded-lg p-3 text-center">
+                      <p className="text-xs text-muted-foreground mb-1">{isFr ? "Numéro Orange Money" : "Orange Money Number"}</p>
+                      <p className="text-lg font-bold font-mono tracking-wider">+237 6XX XXX XXX</p>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground text-center">
+                      {isFr
+                        ? "Envoyez votre don via Orange Money au numéro ci-dessus"
+                        : "Send your donation via Orange Money to the number above"}
+                    </p>
+                  </div>
+
+                  {/* Mobile Money (MTN) */}
+                  <div className="glass-card p-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center">
+                        <span className="text-lg font-bold text-yellow-600">MM</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">MTN Mobile Money</p>
+                        <p className="text-xs text-muted-foreground">Cameroun</p>
+                      </div>
+                    </div>
+                    <div className="bg-secondary/60 rounded-lg p-3 text-center">
+                      <p className="text-xs text-muted-foreground mb-1">{isFr ? "Numéro Mobile Money" : "Mobile Money Number"}</p>
+                      <p className="text-lg font-bold font-mono tracking-wider">+237 6XX XXX XXX</p>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground text-center">
+                      {isFr
+                        ? "Envoyez votre don via MTN Mobile Money au numéro ci-dessus"
+                        : "Send your donation via MTN Mobile Money to the number above"}
+                    </p>
+                  </div>
+
+                  {/* Suggested amounts */}
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                      {isFr ? "Montants suggérés" : "Suggested amounts"}
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[500, 1000, 2000, 5000, 10000, 25000].map((amount) => (
+                        <div key={amount} className="glass-card p-2 text-center">
+                          <p className="text-sm font-bold">{amount.toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">XAF</span></p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <p className="text-center text-xs text-muted-foreground mt-4">
+                    {isFr ? "Merci pour votre générosité ! 🙏" : "Thank you for your generosity! 🙏"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
