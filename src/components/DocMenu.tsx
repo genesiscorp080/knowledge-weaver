@@ -12,7 +12,9 @@ interface DocMenuProps {
 
 const DocMenu = ({ onRename, onDelete, onDownload, onEdit }: DocMenuProps) => {
   const [open, setOpen] = useState(false);
+  const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const { t } = useLanguage();
 
   useEffect(() => {
@@ -22,6 +24,14 @@ const DocMenu = ({ onRename, onDelete, onDownload, onEdit }: DocMenuProps) => {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    if (open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setDropUp(spaceBelow < 200);
+    }
+  }, [open]);
 
   const items = [
     { label: t("common.rename"), icon: Pencil, action: onRename },
@@ -33,6 +43,7 @@ const DocMenu = ({ onRename, onDelete, onDownload, onEdit }: DocMenuProps) => {
   return (
     <div ref={ref} className="relative">
       <button
+        ref={buttonRef}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
         className="p-2 rounded-lg hover:bg-secondary transition-colors"
       >
@@ -41,10 +52,12 @@ const DocMenu = ({ onRename, onDelete, onDownload, onEdit }: DocMenuProps) => {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -5 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -5 }}
-            className="absolute right-0 top-full mt-1 z-30 glass-card overflow-hidden min-w-[160px] shadow-lg"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className={`absolute right-0 z-[100] glass-card overflow-hidden min-w-[160px] shadow-xl ${
+              dropUp ? "bottom-full mb-1" : "top-full mt-1"
+            }`}
           >
             {items.map((item) => {
               const Icon = item.icon;
