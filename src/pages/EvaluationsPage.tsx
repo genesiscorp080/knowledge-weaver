@@ -7,7 +7,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments, Evaluation } from "@/contexts/DocumentContext";
 import { callAI, buildEvaluationSystemPrompt, generatePDF } from "@/lib/ai";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
+import PdfViewer from "@/components/PdfViewer";
 
 const qcmQroOptions = [
   { label: "100% QCM / 0% QRO", qcm: 100, qro: 0 },
@@ -278,10 +278,11 @@ const EvaluationsPage = () => {
                   <button onClick={() => setViewingEval(null)} className="text-muted-foreground text-sm font-medium">✕</button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 py-4">
-                <div className="prose prose-sm max-w-none text-foreground prose-headings:font-display prose-headings:text-foreground prose-p:text-muted-foreground">
-                  <ReactMarkdown>{viewingAnswers ? viewingEval.answersContent : viewingEval.content}</ReactMarkdown>
-                </div>
+              <div className="flex-1 overflow-hidden">
+                <PdfViewer
+                  content={viewingAnswers ? viewingEval.answersContent : viewingEval.content}
+                  title={viewingEval.documentTitle}
+                />
               </div>
             </div>
           </motion.div>
