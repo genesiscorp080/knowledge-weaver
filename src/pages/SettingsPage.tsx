@@ -52,6 +52,12 @@ const SettingsPage = () => {
       ],
     },
     {
+      title: isFr ? "Soutenir" : "Support",
+      items: [
+        { icon: Heart, label: isFr ? "Faire un don" : "Make a donation", desc: isFr ? "Soutenez le développement de Prisca" : "Support Prisca's development", action: () => setShowDonation(true) },
+      ],
+    },
+    {
       title: t("settings.help"),
       items: [
         { icon: HelpCircle, label: t("settings.helpFaq"), desc: "", action: () => navigate("/help") },
