@@ -24,7 +24,7 @@ const formats = [
   { value: "support", labelKey: "format.support", icon: BookMarked, descKey: "format.support.desc", maxPages: 100, minPages: 10 },
   { value: "cours", labelKey: "format.cours", icon: GraduationCap, descKey: "format.cours.desc", maxPages: 100, minPages: 15 },
   { value: "livre", labelKey: "format.livre", icon: BookOpen, descKey: "format.livre.desc", maxPages: 500, minPages: 100 },
-  { value: "encyclopedie", labelKey: "format.encyclopedie", icon: Library, descKey: "format.encyclopedie.desc", maxPages: 1200, minPages: 200 },
+  { value: "encyclopedie", labelKey: "format.encyclopedie", icon: Library, descKey: "format.encyclopedie.desc", maxPages: 1500, minPages: 200 },
 ];
 
 const depths = [

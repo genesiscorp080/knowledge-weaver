@@ -66,7 +66,7 @@ FORMAT GUIDELINES:
 - support: Educational with clear examples, diagrams described textually, moderate formality. 10-100 pages.
 - cours: Very educational with many detailed examples, illustrations described in text, practice exercises, case studies. 15-100 pages.
 - livre: Narrative, comprehensive, formal yet engaging, with chapters, foreword, conclusion. 100-500 pages.
-- encyclopedie: Exhaustive encyclopedia-style. Complete, authoritative, with cross-references. 200-1200 pages.
+- encyclopedie: Exhaustive encyclopedia-style. Complete, authoritative, with cross-references. 200-1500 pages.
 
 FORMATTING RULES:
 - Use markdown with proper heading hierarchy (# for title, ## for chapters, ### for sections, #### for subsections).
@@ -157,7 +157,7 @@ function getDefaultPages(format: string, depth: string): number {
     support: { bas: 10, intermediaire: 30, avance: 60, expert: 100 },
     cours: { intermediaire: 25, avance: 50, expert: 100 },
     livre: { avance: 150, expert: 300 },
-    encyclopedie: { avance: 300, expert: 600 },
+    encyclopedie: { avance: 400, expert: 800 },
   };
   return matrix[format]?.[depth] || 15;
 }
