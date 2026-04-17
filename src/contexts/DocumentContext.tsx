@@ -92,21 +92,26 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     const loadData = async () => {
       setLoading(true);
       try {
-        // Load documents
-        const { data: docs } = await supabase.from("documents").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-        if (docs) {
-          // Load chat messages for docs
-          const { data: chats } = await supabase.from("chat_messages").select("*").eq("user_id", user.id);
-          const chatMap = new Map<string, ChatMessage[]>();
-          chats?.forEach(c => {
-            if (!chatMap.has(c.document_id)) chatMap.set(c.document_id, []);
-            chatMap.get(c.document_id)!.push({
-              id: c.id, role: c.role as "user" | "assistant", content: c.content,
-              timestamp: new Date(c.created_at!), documentId: c.document_id, documentTitle: c.document_title,
-            });
-          });
+        // Run all queries in PARALLEL for fast loading
+        const [docsRes, importsRes, evalsRes, chatsRes] = await Promise.all([
+          supabase.from("documents").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
+          supabase.from("imported_documents").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
+          supabase.from("evaluations").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
+          supabase.from("chat_messages").select("*").eq("user_id", user.id),
+        ]);
 
-          setDocuments(docs.map(d => ({
+        // Build chat map once
+        const chatMap = new Map<string, ChatMessage[]>();
+        chatsRes.data?.forEach(c => {
+          if (!chatMap.has(c.document_id)) chatMap.set(c.document_id, []);
+          chatMap.get(c.document_id)!.push({
+            id: c.id, role: c.role as "user" | "assistant", content: c.content,
+            timestamp: new Date(c.created_at!), documentId: c.document_id, documentTitle: c.document_title,
+          });
+        });
+
+        if (docsRes.data) {
+          setDocuments(docsRes.data.map(d => ({
             id: d.id, title: d.title, topic: d.topic, format: d.format, level: d.level,
             depth: d.depth, pages: d.pages || 0, content: d.content || "",
             tableOfContents: d.table_of_contents || "", createdAt: new Date(d.created_at!),
@@ -114,30 +119,16 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           })));
         }
 
-        // Load imported docs
-        const { data: imports } = await supabase.from("imported_documents").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-        if (imports) {
-          const { data: chats } = await supabase.from("chat_messages").select("*").eq("user_id", user.id);
-          const chatMap = new Map<string, ChatMessage[]>();
-          chats?.forEach(c => {
-            if (!chatMap.has(c.document_id)) chatMap.set(c.document_id, []);
-            chatMap.get(c.document_id)!.push({
-              id: c.id, role: c.role as "user" | "assistant", content: c.content,
-              timestamp: new Date(c.created_at!), documentId: c.document_id, documentTitle: c.document_title,
-            });
-          });
-
-          setImportedDocuments(imports.map(d => ({
+        if (importsRes.data) {
+          setImportedDocuments(importsRes.data.map(d => ({
             id: d.id, title: d.title, fileName: d.file_name, content: d.content || "",
             pageCount: d.page_count || 0, theme: d.theme || "",
             createdAt: new Date(d.created_at!), chatHistory: chatMap.get(d.id) || [],
           })));
         }
 
-        // Load evaluations
-        const { data: evals } = await supabase.from("evaluations").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-        if (evals) {
-          setEvaluations(evals.map(e => ({
+        if (evalsRes.data) {
+          setEvaluations(evalsRes.data.map(e => ({
             id: e.id, documentId: e.document_id, documentTitle: e.document_title,
             content: e.content || "", answersContent: e.answers_content || "",
             depth: e.depth || "", format: e.format || "", completed: e.completed || false,

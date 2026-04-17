@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDocuments } from "@/contexts/DocumentContext";
-import { generateDocumentChunked, estimatePageCount } from "@/lib/ai";
+import { generateDocumentChunked, estimatePageCount, checkTopicAppropriate } from "@/lib/ai";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { toast } from "sonner";
@@ -15,7 +15,7 @@ export interface GenerationJob {
   targetPages: number;
   tableOfContents: string;
   referenceContent?: string;
-  status: "queued" | "generating" | "paused" | "completed" | "failed";
+  status: "queued" | "moderating" | "generating" | "paused" | "completed" | "failed";
   progress: number;
   currentStep: string;
   pagesGenerated: number;
@@ -25,13 +25,15 @@ export interface GenerationJob {
   estimatedTimeLeft: string;
   sectionsCompleted: number;
   totalSections: number;
+  // Resume state
+  nextSectionIdx: number;
 }
 
 interface GenerationContextType {
   jobs: GenerationJob[];
   activeJobs: GenerationJob[];
   queuedJobs: GenerationJob[];
-  addJob: (job: Omit<GenerationJob, "id" | "status" | "progress" | "currentStep" | "pagesGenerated" | "partialContent" | "partialToc" | "startTime" | "estimatedTimeLeft" | "sectionsCompleted" | "totalSections">) => string | null;
+  addJob: (job: Omit<GenerationJob, "id" | "status" | "progress" | "currentStep" | "pagesGenerated" | "partialContent" | "partialToc" | "startTime" | "estimatedTimeLeft" | "sectionsCompleted" | "totalSections" | "nextSectionIdx">) => Promise<string | null>;
   cancelJob: (id: string) => void;
   continueJob: (id: string) => void;
   abandonJob: (id: string) => void;
@@ -45,38 +47,40 @@ interface GenerationContextType {
 
 const GenerationContext = createContext<GenerationContextType | undefined>(undefined);
 
-const MAX_CONCURRENT = 3;
-const MAX_QUEUE = 2;
+const MAX_QUEUE = 5;
 
 export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [showOverlay, setShowOverlay] = useState(false);
   const [overlayJobId, setOverlayJobId] = useState<string | null>(null);
-  const { user, profile, recordGeneration, getMaxConcurrent, canGenerate } = useAuth();
+  const { profile, recordGeneration, getMaxConcurrent, canGenerate } = useAuth();
   const { addDocument } = useDocuments();
   const { language } = useLanguage();
   const { sendNotification } = useNotifications();
   const processingRef = useRef<Set<string>>(new Set());
   const onlineRef = useRef(navigator.onLine);
+  // Keep latest resume state per job (toc, content, nextSectionIdx)
+  const resumeStateRef = useRef<Map<string, { toc: string; content: string; nextSectionIdx: number }>>(new Map());
 
   const activeJobs = jobs.filter(j => j.status === "generating");
-  const queuedJobs = jobs.filter(j => j.status === "queued");
+  const queuedJobs = jobs.filter(j => j.status === "queued" || j.status === "moderating");
   const pausedJobs = jobs.filter(j => j.status === "paused");
   const hasActiveGenerations = activeJobs.length > 0 || queuedJobs.length > 0;
 
-  // Listen for online/offline
+  // Online/offline handlers — pause active jobs when offline
   useEffect(() => {
     const handleOnline = () => {
       onlineRef.current = true;
-      if (pausedJobs.length > 0) {
-        toast.info(language === "fr"
-          ? "Connexion rétablie. Voulez-vous reprendre les générations en pause ?"
-          : "Connection restored. Resume paused generations?");
-      }
+      // Auto-resume paused-by-offline jobs
+      setJobs(prev => prev.map(j =>
+        j.status === "paused" && j.currentStep.toLowerCase().includes(language === "fr" ? "hors ligne" : "offline")
+          ? { ...j, status: "queued" as const, currentStep: language === "fr" ? "Reprise..." : "Resuming..." }
+          : j
+      ));
+      toast.info(language === "fr" ? "Connexion rétablie" : "Connection restored");
     };
     const handleOffline = () => {
       onlineRef.current = false;
-      // Pause all active jobs
       setJobs(prev => prev.map(j =>
         j.status === "generating" ? { ...j, status: "paused" as const, currentStep: language === "fr" ? "En pause (hors ligne)" : "Paused (offline)" } : j
       ));
@@ -87,7 +91,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [pausedJobs.length, language]);
+  }, [language]);
 
   const processJob = useCallback(async (job: GenerationJob) => {
     if (processingRef.current.has(job.id)) return;
@@ -95,15 +99,33 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
 
     const isFr = language === "fr";
 
-    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: "generating" as const, startTime: Date.now() } : j));
+    // Mark generating + reset start time only if no resume state exists (for accurate ETA on fresh start)
+    const hasResume = resumeStateRef.current.has(job.id);
+    setJobs(prev => prev.map(j => j.id === job.id ? {
+      ...j,
+      status: "generating" as const,
+      startTime: hasResume ? j.startTime : Date.now(),
+    } : j));
 
     try {
+      const resumeState = resumeStateRef.current.get(job.id);
+
       const { toc, content } = await generateDocumentChunked(
         job.topic, job.level, job.format, job.depth,
         job.targetPages, language, job.tableOfContents,
-        (progress: number, step: string) => {
+        (progress, step, partial) => {
           if (!onlineRef.current) throw new Error("OFFLINE");
-          
+
+          // Persist resume state continuously
+          if (partial.toc !== undefined || partial.content !== undefined) {
+            const prev = resumeStateRef.current.get(job.id) || { toc: "", content: "", nextSectionIdx: 0 };
+            resumeStateRef.current.set(job.id, {
+              toc: partial.toc ?? prev.toc,
+              content: partial.content ?? prev.content,
+              nextSectionIdx: partial.sectionIdx ?? prev.nextSectionIdx,
+            });
+          }
+
           const estPages = Math.round((progress / 100) * job.targetPages);
           setJobs(prev => prev.map(j => {
             if (j.id !== job.id) return j;
@@ -114,11 +136,25 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
               const remaining = Math.max(0, totalEst - elapsed);
               eta = remaining > 60 ? `~${Math.round(remaining / 60)} min` : `~${Math.round(remaining)}s`;
             }
-            return { ...j, progress: Math.min(98, progress), currentStep: step, pagesGenerated: estPages, estimatedTimeLeft: eta };
+            return {
+              ...j,
+              progress: Math.min(98, progress),
+              currentStep: step,
+              pagesGenerated: estPages,
+              estimatedTimeLeft: eta,
+              sectionsCompleted: partial.sectionIdx ?? j.sectionsCompleted,
+              totalSections: partial.totalSections ?? j.totalSections,
+              partialToc: partial.toc ?? j.partialToc,
+              partialContent: partial.content ?? j.partialContent,
+            };
           }));
         },
-        job.referenceContent
+        job.referenceContent,
+        resumeState
       );
+
+      // Clear resume state on success
+      resumeStateRef.current.delete(job.id);
 
       const fullContent = `# ${job.topic}\n\n## ${isFr ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${content}`;
       const title = job.topic.length > 60 ? job.topic.slice(0, 57) + "..." : job.topic;
@@ -150,20 +186,29 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
 
       toast.success(isFr ? `"${title}" généré avec succès !` : `"${title}" generated successfully!`);
 
-      // Remove completed job after a delay
       setTimeout(() => {
         setJobs(prev => prev.filter(j => j.id !== job.id));
       }, 5000);
 
     } catch (err: any) {
-      if (err.message === "OFFLINE") {
-        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: "paused" as const, currentStep: isFr ? "En pause (hors ligne)" : "Paused (offline)" } : j));
+      const msg = err?.message || "";
+      // RESUMABLE error from ai.ts carries resume state
+      if (err?.resumeState) {
+        resumeStateRef.current.set(job.id, err.resumeState);
+      }
+      if (msg === "OFFLINE" || msg === "RESUMABLE" || /network|fetch/i.test(msg)) {
+        setJobs(prev => prev.map(j => j.id === job.id ? {
+          ...j,
+          status: "paused" as const,
+          currentStep: isFr ? "En pause (hors ligne) - reprendra automatiquement" : "Paused (offline) - will resume automatically",
+        } : j));
       } else {
         console.error("Generation failed:", err);
-        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: "failed" as const, currentStep: err.message } : j));
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: "failed" as const, currentStep: msg } : j));
         toast.error(isFr ? "Échec de la génération" : "Generation failed");
         setTimeout(() => {
           setJobs(prev => prev.filter(j => j.id !== job.id));
+          resumeStateRef.current.delete(job.id);
         }, 10000);
       }
     } finally {
@@ -171,47 +216,59 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [language, addDocument, recordGeneration, sendNotification]);
 
-  // Auto-process queued jobs when slots open
+  // Smart scheduler: pick the queued job with the SHORTEST estimated time remaining
+  // (smaller targetPages = shorter). Encyclopedias only run alone.
   useEffect(() => {
     const maxConcurrent = getMaxConcurrent();
     const currentActive = jobs.filter(j => j.status === "generating").length;
     const queued = jobs.filter(j => j.status === "queued");
+    if (queued.length === 0 || !onlineRef.current) return;
+    if (currentActive >= maxConcurrent) return;
 
-    if (currentActive < maxConcurrent && queued.length > 0 && onlineRef.current) {
-      const nextJob = queued[0];
-      // Don't start encyclopedia if there's already an active generation
-      if (nextJob.format === "encyclopedie" && currentActive > 0) return;
-      if (nextJob.format !== "encyclopedie" || currentActive === 0) {
+    // Sort queue by shortest job first (SJF — Shortest Job First scheduling)
+    const sortedQueue = [...queued].sort((a, b) => {
+      // Resume jobs (with partial content) bubble up — give them priority to finish
+      const aResume = resumeStateRef.current.get(a.id)?.nextSectionIdx || 0;
+      const bResume = resumeStateRef.current.get(b.id)?.nextSectionIdx || 0;
+      const aRemaining = a.targetPages * (1 - (aResume / Math.max(1, a.totalSections || 5)));
+      const bRemaining = b.targetPages * (1 - (bResume / Math.max(1, b.totalSections || 5)));
+      return aRemaining - bRemaining;
+    });
+
+    for (const nextJob of sortedQueue) {
+      if (currentActive >= maxConcurrent) break;
+      // Encyclopedia: only run if NO other generation is active AND it's the only thing
+      if (nextJob.format === "encyclopedie") {
+        if (currentActive > 0) continue; // skip — let smaller jobs run first
         processJob(nextJob);
+        return;
       }
+      // Skip if there's an encyclopedia currently generating
+      const hasActiveEncyclopedia = jobs.some(j => j.status === "generating" && j.format === "encyclopedie");
+      if (hasActiveEncyclopedia) continue;
+      processJob(nextJob);
+      return; // Trigger one at a time; effect will re-run when state updates
     }
   }, [jobs, processJob, getMaxConcurrent]);
 
-  const addJob = useCallback((jobInput: Omit<GenerationJob, "id" | "status" | "progress" | "currentStep" | "pagesGenerated" | "partialContent" | "partialToc" | "startTime" | "estimatedTimeLeft" | "sectionsCompleted" | "totalSections">) => {
+  const addJob = useCallback(async (jobInput: Omit<GenerationJob, "id" | "status" | "progress" | "currentStep" | "pagesGenerated" | "partialContent" | "partialToc" | "startTime" | "estimatedTimeLeft" | "sectionsCompleted" | "totalSections" | "nextSectionIdx">) => {
     if (!canGenerate()) return null;
 
-    const totalActive = jobs.filter(j => ["generating", "queued"].includes(j.status)).length;
+    const totalActive = jobs.filter(j => ["generating", "queued", "moderating", "paused"].includes(j.status)).length;
     const maxConcurrent = getMaxConcurrent();
-    
+
     if (totalActive >= maxConcurrent + MAX_QUEUE) {
       toast.error(language === "fr" ? "File d'attente pleine" : "Queue is full");
       return null;
     }
 
-    // Encyclopedia can't be simultaneous
-    if (jobInput.format === "encyclopedie") {
-      const hasActive = jobs.some(j => j.status === "generating");
-      if (hasActive) {
-        // Queue it
-      }
-    }
-
+    const isFr = language === "fr";
     const newJob: GenerationJob = {
       ...jobInput,
       id: crypto.randomUUID(),
-      status: "queued",
+      status: "moderating",
       progress: 0,
-      currentStep: language === "fr" ? "En attente..." : "Waiting...",
+      currentStep: isFr ? "Vérification du sujet..." : "Checking topic...",
       pagesGenerated: 0,
       partialContent: "",
       partialToc: "",
@@ -219,13 +276,41 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
       estimatedTimeLeft: "",
       sectionsCompleted: 0,
       totalSections: 0,
+      nextSectionIdx: 0,
     };
 
     setJobs(prev => [...prev, newJob]);
+
+    // Run topic moderation asynchronously (non-blocking for the UI flow)
+    (async () => {
+      try {
+        const check = await checkTopicAppropriate(jobInput.topic, language);
+        if (!check.ok) {
+          toast.error(check.reason);
+          setJobs(prev => prev.filter(j => j.id !== newJob.id));
+          return;
+        }
+        // Approve → enqueue
+        setJobs(prev => prev.map(j => j.id === newJob.id ? {
+          ...j,
+          status: "queued" as const,
+          currentStep: isFr ? "En attente..." : "Waiting...",
+        } : j));
+      } catch {
+        // On moderation failure, allow the job
+        setJobs(prev => prev.map(j => j.id === newJob.id ? {
+          ...j,
+          status: "queued" as const,
+          currentStep: isFr ? "En attente..." : "Waiting...",
+        } : j));
+      }
+    })();
+
     return newJob.id;
   }, [jobs, canGenerate, getMaxConcurrent, language]);
 
   const cancelJob = useCallback((id: string) => {
+    resumeStateRef.current.delete(id);
     setJobs(prev => prev.filter(j => j.id !== id));
   }, []);
 
@@ -234,6 +319,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const abandonJob = useCallback((id: string) => {
+    resumeStateRef.current.delete(id);
     setJobs(prev => prev.filter(j => j.id !== id));
   }, []);
 

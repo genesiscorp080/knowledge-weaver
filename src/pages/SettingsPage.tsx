@@ -9,6 +9,8 @@ import { useNotifications } from "@/contexts/NotificationContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Switch } from "@/components/ui/switch";
 import ReactMarkdown from "react-markdown";
+import orangeMoneyLogo from "@/assets/orange-money.jpg";
+import mtnMomoLogo from "@/assets/mtn-mobile-money.jpg";
 
 const SettingsPage = () => {
   const { theme, toggleTheme } = useThemeContext();
@@ -344,7 +346,7 @@ Access, rectify, delete, and export your data via the Application.
                   <X size={18} className="text-muted-foreground" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6">
+              <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6 pb-32">
                 <div className="text-center space-y-2">
                   <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
                     <Heart size={28} className="text-primary" />
@@ -367,8 +369,8 @@ Access, rectify, delete, and export your data via the Application.
                   {/* Orange Money */}
                   <div className="glass-card p-4 space-y-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
-                        <span className="text-lg font-bold text-orange-500">OM</span>
+                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-white flex items-center justify-center shrink-0">
+                        <img src={orangeMoneyLogo} alt="Orange Money" className="w-full h-full object-cover" />
                       </div>
                       <div>
                         <p className="text-sm font-semibold">Orange Money</p>
@@ -389,8 +391,8 @@ Access, rectify, delete, and export your data via the Application.
                   {/* Mobile Money (MTN) */}
                   <div className="glass-card p-4 space-y-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center">
-                        <span className="text-lg font-bold text-yellow-600">MM</span>
+                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-white flex items-center justify-center shrink-0">
+                        <img src={mtnMomoLogo} alt="MTN Mobile Money" className="w-full h-full object-cover" />
                       </div>
                       <div>
                         <p className="text-sm font-semibold">MTN Mobile Money</p>

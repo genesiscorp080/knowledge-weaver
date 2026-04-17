@@ -24,7 +24,7 @@ const formats = [
   { value: "support", labelKey: "format.support", icon: BookMarked, descKey: "format.support.desc", maxPages: 100, minPages: 10 },
   { value: "cours", labelKey: "format.cours", icon: GraduationCap, descKey: "format.cours.desc", maxPages: 100, minPages: 15 },
   { value: "livre", labelKey: "format.livre", icon: BookOpen, descKey: "format.livre.desc", maxPages: 500, minPages: 100 },
-  { value: "encyclopedie", labelKey: "format.encyclopedie", icon: Library, descKey: "format.encyclopedie.desc", maxPages: 1200, minPages: 200 },
+  { value: "encyclopedie", labelKey: "format.encyclopedie", icon: Library, descKey: "format.encyclopedie.desc", maxPages: 1500, minPages: 200 },
 ];
 
 const depths = [
@@ -91,7 +91,7 @@ const HomePage = () => {
     if (refFileRef.current) refFileRef.current.value = "";
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!topic || !level || !format) return;
 
     if (!canGenerate()) {
@@ -110,7 +110,7 @@ const HomePage = () => {
       ? referenceFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 5000)}`).join("\n\n")
       : undefined;
 
-    const jobId = addJob({
+    const jobId = await addJob({
       topic, level, format, depth,
       targetPages: customPages || 15,
       tableOfContents,
@@ -118,7 +118,7 @@ const HomePage = () => {
     });
 
     if (jobId) {
-      toast.success(isFr ? "Document ajouté à la file de génération" : "Document added to generation queue");
+      toast.success(isFr ? "Vérification du sujet en cours..." : "Checking topic...");
       setTopic("");
     }
   };
