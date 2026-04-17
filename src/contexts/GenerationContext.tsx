@@ -37,6 +37,8 @@ interface GenerationContextType {
   cancelJob: (id: string) => void;
   continueJob: (id: string) => void;
   abandonJob: (id: string) => void;
+  pauseJob: (id: string) => void;
+  resumeJob: (id: string) => void;
   pausedJobs: GenerationJob[];
   showOverlay: boolean;
   setShowOverlay: (v: boolean) => void;
@@ -59,6 +61,8 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   const { sendNotification } = useNotifications();
   const processingRef = useRef<Set<string>>(new Set());
   const onlineRef = useRef(navigator.onLine);
+  // Manual pause requests — checked in the progress callback to halt cleanly
+  const pauseRequestedRef = useRef<Set<string>>(new Set());
   // Keep latest resume state per job (toc, content, nextSectionIdx)
   const resumeStateRef = useRef<Map<string, { toc: string; content: string; nextSectionIdx: number }>>(new Map());
 
@@ -115,6 +119,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
         job.targetPages, language, job.tableOfContents,
         (progress, step, partial) => {
           if (!onlineRef.current) throw new Error("OFFLINE");
+          if (pauseRequestedRef.current.has(job.id)) throw new Error("PAUSED_MANUAL");
 
           // Persist resume state continuously
           if (partial.toc !== undefined || partial.content !== undefined) {
@@ -196,7 +201,14 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
       if (err?.resumeState) {
         resumeStateRef.current.set(job.id, err.resumeState);
       }
-      if (msg === "OFFLINE" || msg === "RESUMABLE" || /network|fetch/i.test(msg)) {
+      if (msg === "PAUSED_MANUAL") {
+        pauseRequestedRef.current.delete(job.id);
+        setJobs(prev => prev.map(j => j.id === job.id ? {
+          ...j,
+          status: "paused" as const,
+          currentStep: isFr ? "En pause - cliquez sur Reprendre pour continuer" : "Paused - click Resume to continue",
+        } : j));
+      } else if (msg === "OFFLINE" || msg === "RESUMABLE" || /network|fetch/i.test(msg)) {
         setJobs(prev => prev.map(j => j.id === job.id ? {
           ...j,
           status: "paused" as const,
@@ -323,9 +335,31 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     setJobs(prev => prev.filter(j => j.id !== id));
   }, []);
 
+  const pauseJob = useCallback((id: string) => {
+    const isFr = language === "fr";
+    // Request pause — actual halt happens at next progress callback
+    pauseRequestedRef.current.add(id);
+    setJobs(prev => prev.map(j => j.id === id && j.status === "generating" ? {
+      ...j,
+      currentStep: isFr ? "Mise en pause..." : "Pausing...",
+    } : j));
+    toast.info(isFr ? "Pause demandée — arrêt à la prochaine étape" : "Pause requested — stopping at next step");
+  }, [language]);
+
+  const resumeJob = useCallback((id: string) => {
+    const isFr = language === "fr";
+    pauseRequestedRef.current.delete(id);
+    setJobs(prev => prev.map(j => j.id === id && j.status === "paused" ? {
+      ...j,
+      status: "queued" as const,
+      currentStep: isFr ? "Reprise..." : "Resuming...",
+    } : j));
+  }, [language]);
+
   return (
     <GenerationContext.Provider value={{
-      jobs, activeJobs, queuedJobs, addJob, cancelJob, continueJob, abandonJob, pausedJobs,
+      jobs, activeJobs, queuedJobs, addJob, cancelJob, continueJob, abandonJob,
+      pauseJob, resumeJob, pausedJobs,
       showOverlay, setShowOverlay, overlayJobId, setOverlayJobId, hasActiveGenerations,
     }}>
       {children}

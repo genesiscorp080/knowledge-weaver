@@ -379,7 +379,13 @@ Access, rectify, delete, and export your data via the Application.
                     </div>
                     <div className="bg-secondary/60 rounded-lg p-3 text-center">
                       <p className="text-xs text-muted-foreground mb-1">{isFr ? "Numéro Orange Money" : "Orange Money Number"}</p>
-                      <p className="text-lg font-bold font-mono tracking-wider">+237 6XX XXX XXX</p>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText("+237699390755"); }}
+                        className="text-lg font-bold font-mono tracking-wider hover:text-primary transition-colors"
+                        title={isFr ? "Cliquez pour copier" : "Click to copy"}
+                      >
+                        +237 699 390 755
+                      </button>
                     </div>
                     <p className="text-[11px] text-muted-foreground text-center">
                       {isFr
@@ -401,7 +407,13 @@ Access, rectify, delete, and export your data via the Application.
                     </div>
                     <div className="bg-secondary/60 rounded-lg p-3 text-center">
                       <p className="text-xs text-muted-foreground mb-1">{isFr ? "Numéro Mobile Money" : "Mobile Money Number"}</p>
-                      <p className="text-lg font-bold font-mono tracking-wider">+237 6XX XXX XXX</p>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText("+237679242442"); }}
+                        className="text-lg font-bold font-mono tracking-wider hover:text-primary transition-colors"
+                        title={isFr ? "Cliquez pour copier" : "Click to copy"}
+                      >
+                        +237 679 242 442
+                      </button>
                     </div>
                     <p className="text-[11px] text-muted-foreground text-center">
                       {isFr
