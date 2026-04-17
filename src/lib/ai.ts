@@ -504,26 +504,33 @@ INAPPROPRIATE: [brief reason]`,
 export async function generateDocumentChunked(
   topic: string, level: string, format: string, depth: string,
   pages: number | null, language: string, tableOfContents: string,
-  onProgress: (progress: number, step: string) => void,
-  referenceContent?: string
+  onProgress: (progress: number, step: string, partial: { toc?: string; content?: string; sectionIdx?: number; totalSections?: number }) => void,
+  referenceContent?: string,
+  resumeFrom?: { toc: string; content: string; nextSectionIdx: number }
 ): Promise<{ toc: string; content: string }> {
   const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent);
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
 
-  onProgress(5, isFr ? `Analyse et structuration : ${topic.slice(0, 50)}...` : `Analyzing and structuring: ${topic.slice(0, 50)}...`);
+  let toc: string;
+  if (resumeFrom?.toc) {
+    toc = resumeFrom.toc;
+    onProgress(10, isFr ? "Reprise de la génération..." : "Resuming generation...", { toc });
+  } else {
+    onProgress(5, isFr ? `Analyse et structuration : ${topic.slice(0, 50)}...` : `Analyzing and structuring: ${topic.slice(0, 50)}...`, {});
 
-  const tocPrompt = tableOfContents
-    ? `Generate a detailed table of contents for a document about "${topic}" based on these guidelines:\n${tableOfContents}\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. List ONLY the table of contents, one entry per line, with section numbers.`
-    : `Generate a detailed table of contents for a document about "${topic}".\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. For ${targetPages} pages, you need at least ${Math.max(5, Math.ceil(targetPages / 10))} major sections. List ONLY the table of contents, one entry per line, with section numbers.`;
+    const tocPrompt = tableOfContents
+      ? `Generate a detailed table of contents for a document about "${topic}" based on these guidelines:\n${tableOfContents}\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. List ONLY the table of contents, one entry per line, with section numbers.`
+      : `Generate a detailed table of contents for a document about "${topic}".\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. For ${targetPages} pages, you need at least ${Math.max(5, Math.ceil(targetPages / 10))} major sections. List ONLY the table of contents, one entry per line, with section numbers.`;
 
-  const toc = await callAI({
-    action: "generate_toc",
-    messages: [{ role: "user", content: tocPrompt }],
-    systemPrompt,
-  });
+    toc = await callAI({
+      action: "generate_toc",
+      messages: [{ role: "user", content: tocPrompt }],
+      systemPrompt,
+    });
 
-  onProgress(10, isFr ? "Structure créée" : "Structure created");
+    onProgress(10, isFr ? "Structure créée" : "Structure created", { toc });
+  }
 
   const tocLines = toc.split("\n").filter((l) => l.trim().length > 0);
   const majorSections: string[] = [];
@@ -549,16 +556,18 @@ export async function generateDocumentChunked(
   }, []).map(group => group.join("\n"));
 
   const totalSections = sections.length;
-  let fullContent = "";
+  let fullContent = resumeFrom?.content || "";
+  const startIdx = resumeFrom?.nextSectionIdx || 0;
 
-  for (let i = 0; i < totalSections; i++) {
+  for (let i = startIdx; i < totalSections; i++) {
     const sectionToc = sections[i];
     const progress = 10 + ((i / totalSections) * 85);
     const sectionName = sectionToc.split("\n")[0].trim().replace(/^[\d#.\)\-]+\s*/, "").slice(0, 80);
     
     onProgress(
       progress,
-      `${isFr ? "Rédaction section" : "Writing section"} ${i + 1}/${totalSections} : ${sectionName}`
+      `${isFr ? "Rédaction section" : "Writing section"} ${i + 1}/${totalSections} : ${sectionName}`,
+      { toc, content: fullContent, sectionIdx: i, totalSections }
     );
 
     const pagesPerSection = Math.max(3, Math.round(targetPages / totalSections));
@@ -574,7 +583,9 @@ export async function generateDocumentChunked(
         messages: [{ role: "user", content: sectionPrompt }],
         systemPrompt,
       });
-      fullContent += (i > 0 ? "\n\n" : "") + sectionContent;
+      fullContent += (fullContent.length > 0 ? "\n\n" : "") + sectionContent;
+      // Save after each section to enable resume
+      onProgress(progress + (85 / totalSections), `${isFr ? "Section terminée" : "Section completed"} ${i + 1}/${totalSections}`, { toc, content: fullContent, sectionIdx: i + 1, totalSections });
     } catch (err) {
       console.error(`Section ${i + 1} failed:`, err);
       try {
@@ -584,10 +595,18 @@ export async function generateDocumentChunked(
           messages: [{ role: "user", content: simplePrompt }],
           systemPrompt,
         });
-        fullContent += (i > 0 ? "\n\n" : "") + fallbackContent;
+        fullContent += (fullContent.length > 0 ? "\n\n" : "") + fallbackContent;
       } catch (retryErr) {
         console.error(`Section ${i + 1} retry also failed:`, retryErr);
-        fullContent += (i > 0 ? "\n\n" : "") + `## ${sectionName}\n\n*[Section generation failed. Please regenerate this section.]*`;
+        // If it's an offline / network error, propagate so the job can pause and resume
+        const msg = String((retryErr as any)?.message || "");
+        if (msg === "OFFLINE" || /network|fetch|failed to fetch/i.test(msg)) {
+          // Save current state into a custom error so caller can resume
+          const resumeErr = new Error("RESUMABLE");
+          (resumeErr as any).resumeState = { toc, content: fullContent, nextSectionIdx: i };
+          throw resumeErr;
+        }
+        fullContent += (fullContent.length > 0 ? "\n\n" : "") + `## ${sectionName}\n\n*[Section generation failed. Please regenerate this section.]*`;
       }
     }
 
@@ -596,6 +615,6 @@ export async function generateDocumentChunked(
     }
   }
 
-  onProgress(98, isFr ? "Finalisation du document..." : "Finalizing document...");
+  onProgress(98, isFr ? "Finalisation du document..." : "Finalizing document...", { toc, content: fullContent });
   return { toc, content: fullContent };
 }
