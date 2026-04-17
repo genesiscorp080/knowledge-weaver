@@ -419,6 +419,88 @@ ${content.slice(0, 3000)}`
   };
 }
 
+// Fast keyword-based topic check (instant, no API call). Falls through to AI if borderline.
+export function checkTopicLocally(topic: string): { ok: boolean; reason?: string } {
+  const t = topic.toLowerCase();
+  const blocklist = [
+    // Sexual / erotic
+    "porn", "porno", "pornograph", "érotique", "erotic", "sexe explicite", "explicit sex", "nudité", "nudity", "xxx",
+    "sextape", "fellation", "masturbat", "orgasme", "orgasm", "pédophil", "pedophil", "incest",
+    // Religious sensitive (proselytism / hate)
+    "convertir au", "convert to ", "anti-islam", "anti-chrétien", "anti-christian", "anti-juif", "anti-jew",
+    "blasphème contre", "blasphemy against", "secte ", "cult worship",
+    // Politics partisan / fascist
+    "nazi", "nazism", "nazisme", "fasciste", "fascism", "fascisme", "hitler", "mussolini",
+    "suprémaciste", "supremacist", "kkk", "white power", "génocide", "genocide ",
+    "djihad", "jihad", "terrorist", "terroriste", "isis", "daesh", "al-qaida", "al qaeda",
+    // Drugs / weapons
+    "fabriquer une bombe", "make a bomb", "build a bomb", "synthétiser de la drogue", "synthesize drug",
+    "cocaïne fabrication", "meth synthesis", "fabriquer arme",
+    // Hate / violence
+    "comment tuer", "how to kill", "suicide method", "méthode suicide",
+  ];
+  for (const word of blocklist) {
+    if (t.includes(word)) {
+      return { ok: false, reason: word };
+    }
+  }
+  return { ok: true };
+}
+
+// Fast AI-based topic moderation (one quick call before generation starts)
+export async function checkTopicAppropriate(topic: string, language: string): Promise<{ ok: boolean; reason: string }> {
+  // Quick local check first
+  const local = checkTopicLocally(topic);
+  if (!local.ok) {
+    return {
+      ok: false,
+      reason: language === "fr"
+        ? "Ce sujet contient du contenu sensible (érotique, politique partisan, fasciste, religieux extrême ou violent) et ne peut pas être généré."
+        : "This topic contains sensitive content (erotic, partisan political, fascist, extreme religious or violent) and cannot be generated.",
+    };
+  }
+
+  try {
+    const response = await callAI({
+      action: "check_topic",
+      messages: [{
+        role: "user",
+        content: `Topic: "${topic}"
+
+Is this topic appropriate for an EDUCATIONAL document? It must NOT be:
+- Pornographic, erotic, or sexually explicit
+- Partisan political propaganda (favoring a specific party/leader)
+- Fascist, Nazi, or supremacist content
+- Religious proselytism or hate against a religion
+- Promoting violence, terrorism, or illegal activities
+- Instructions for making weapons, drugs, or dangerous substances
+
+Educational discussion of these topics in a neutral academic context IS allowed (e.g., "history of fascism", "comparative religions", "drug addiction prevention").
+
+Respond with ONLY one of:
+APPROPRIATE
+INAPPROPRIATE: [brief reason]`,
+      }],
+      systemPrompt: "You are a strict but fair content moderator for educational content.",
+    }, 1);
+
+    if (/^INAPPROPRIATE/i.test(response.trim())) {
+      const reasonMatch = response.match(/INAPPROPRIATE:\s*(.+)/i);
+      return {
+        ok: false,
+        reason: language === "fr"
+          ? `Sujet refusé : ${reasonMatch?.[1] || "contenu sensible"}`
+          : `Topic refused: ${reasonMatch?.[1] || "sensitive content"}`,
+      };
+    }
+    return { ok: true, reason: "" };
+  } catch (err) {
+    // If moderation fails, allow (don't block users on transient errors)
+    console.warn("Topic moderation check failed, allowing:", err);
+    return { ok: true, reason: "" };
+  }
+}
+
 export async function generateDocumentChunked(
   topic: string, level: string, format: string, depth: string,
   pages: number | null, language: string, tableOfContents: string,
