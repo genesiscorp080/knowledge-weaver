@@ -37,6 +37,8 @@ interface GenerationContextType {
   cancelJob: (id: string) => void;
   continueJob: (id: string) => void;
   abandonJob: (id: string) => void;
+  pauseJob: (id: string) => void;
+  resumeJob: (id: string) => void;
   pausedJobs: GenerationJob[];
   showOverlay: boolean;
   setShowOverlay: (v: boolean) => void;
@@ -59,6 +61,8 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   const { sendNotification } = useNotifications();
   const processingRef = useRef<Set<string>>(new Set());
   const onlineRef = useRef(navigator.onLine);
+  // Manual pause requests — checked in the progress callback to halt cleanly
+  const pauseRequestedRef = useRef<Set<string>>(new Set());
   // Keep latest resume state per job (toc, content, nextSectionIdx)
   const resumeStateRef = useRef<Map<string, { toc: string; content: string; nextSectionIdx: number }>>(new Map());
 
@@ -115,6 +119,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
         job.targetPages, language, job.tableOfContents,
         (progress, step, partial) => {
           if (!onlineRef.current) throw new Error("OFFLINE");
+          if (pauseRequestedRef.current.has(job.id)) throw new Error("PAUSED_MANUAL");
 
           // Persist resume state continuously
           if (partial.toc !== undefined || partial.content !== undefined) {
