@@ -91,7 +91,7 @@ const HomePage = () => {
     if (refFileRef.current) refFileRef.current.value = "";
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!topic || !level || !format) return;
 
     if (!canGenerate()) {
@@ -110,7 +110,7 @@ const HomePage = () => {
       ? referenceFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 5000)}`).join("\n\n")
       : undefined;
 
-    const jobId = addJob({
+    const jobId = await addJob({
       topic, level, format, depth,
       targetPages: customPages || 15,
       tableOfContents,
@@ -118,7 +118,7 @@ const HomePage = () => {
     });
 
     if (jobId) {
-      toast.success(isFr ? "Document ajouté à la file de génération" : "Document added to generation queue");
+      toast.success(isFr ? "Vérification du sujet en cours..." : "Checking topic...");
       setTopic("");
     }
   };

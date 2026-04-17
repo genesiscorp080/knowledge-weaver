@@ -11,7 +11,7 @@ const FloatingProgress = () => {
   const [expanded, setExpanded] = useState(false);
   const [viewIndex, setViewIndex] = useState(0);
 
-  const activeOrQueued = jobs.filter(j => ["generating", "queued", "paused"].includes(j.status));
+  const activeOrQueued = jobs.filter(j => ["generating", "queued", "paused", "moderating"].includes(j.status));
   if (activeOrQueued.length === 0) return null;
 
   const primaryJob = activeOrQueued.find(j => j.status === "generating") || activeOrQueued[0];
@@ -104,11 +104,13 @@ const FloatingProgress = () => {
           <div className={`px-3 py-1 rounded-full text-xs font-medium ${
             currentJob.status === "generating" ? "bg-primary/10 text-primary" :
             currentJob.status === "queued" ? "bg-secondary text-muted-foreground" :
+            currentJob.status === "moderating" ? "bg-accent/20 text-accent-foreground" :
             currentJob.status === "paused" ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300" :
             "bg-destructive/10 text-destructive"
           }`}>
             {currentJob.status === "generating" ? (isFr ? "En cours" : "Generating") :
              currentJob.status === "queued" ? (isFr ? "En file d'attente" : "Queued") :
+             currentJob.status === "moderating" ? (isFr ? "Vérification du sujet" : "Checking topic") :
              currentJob.status === "paused" ? (isFr ? "En pause" : "Paused") :
              (isFr ? "Échoué" : "Failed")}
           </div>
