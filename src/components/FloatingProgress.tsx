@@ -5,7 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Loader2, X, ChevronLeft, ChevronRight, FileText, Clock, Layers, Pause, Play, Trash2 } from "lucide-react";
 
 const FloatingProgress = () => {
-  const { jobs, hasActiveGenerations, cancelJob, continueJob, abandonJob } = useGeneration();
+  const { jobs, hasActiveGenerations, cancelJob, continueJob, abandonJob, pauseJob, resumeJob } = useGeneration();
   const { language } = useLanguage();
   const isFr = language === "fr";
   const [expanded, setExpanded] = useState(false);
@@ -116,9 +116,14 @@ const FloatingProgress = () => {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex items-center gap-3 mt-2 flex-wrap justify-center">
+            {currentJob.status === "generating" && (
+              <button onClick={() => pauseJob(currentJob.id)} className="btn-secondary text-xs px-4 py-2 flex items-center gap-1.5">
+                <Pause size={12} /> {isFr ? "Pause" : "Pause"}
+              </button>
+            )}
             {currentJob.status === "paused" && (
-              <button onClick={() => continueJob(currentJob.id)} className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5">
+              <button onClick={() => resumeJob(currentJob.id)} className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5">
                 <Play size={12} /> {isFr ? "Reprendre" : "Resume"}
               </button>
             )}
