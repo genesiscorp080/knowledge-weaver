@@ -21,21 +21,30 @@ serve(async (req) => {
       );
     }
 
-    // Try Cohere first
+    // Cohere only — retries with backoff on 5xx, no fallback to other providers
     const COHERE_API_KEY = Deno.env.get("COHERE_API_KEY");
-    if (COHERE_API_KEY) {
+    if (!COHERE_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "COHERE_API_KEY not configured" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const cohereMessages: any[] = [];
+    if (systemPrompt) {
+      cohereMessages.push({ role: "system", content: systemPrompt });
+    }
+    for (const msg of messages) {
+      cohereMessages.push({ role: msg.role === "assistant" ? "assistant" : "user", content: msg.content });
+    }
+
+    const maxAttempts = 4;
+    let lastStatus = 0;
+    let lastBody = "";
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const cohereMessages: any[] = [];
-        if (systemPrompt) {
-          cohereMessages.push({ role: "system", content: systemPrompt });
-        }
-        for (const msg of messages) {
-          cohereMessages.push({ role: msg.role === "assistant" ? "assistant" : "user", content: msg.content });
-        }
-
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 120000);
-
+        const timeout = setTimeout(() => controller.abort(), 180000);
         const response = await fetch("https://api.cohere.com/v2/chat", {
           method: "POST",
           headers: {
@@ -48,7 +57,6 @@ serve(async (req) => {
           }),
           signal: controller.signal,
         });
-
         clearTimeout(timeout);
 
         if (response.ok) {
@@ -60,59 +68,29 @@ serve(async (req) => {
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+          lastStatus = 200;
+          lastBody = "Empty response";
+        } else {
+          lastStatus = response.status;
+          lastBody = await response.text();
+          console.warn(`Cohere attempt ${attempt + 1} failed: ${response.status}`);
+          // Don't retry on client errors (4xx except 408/429)
+          if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+            break;
+          }
         }
-
-        // If Cohere returned 5xx or empty, fall through to Lovable AI
-        console.warn("Cohere failed with status:", response.status, "- falling back to Lovable AI");
-      } catch (cohereErr) {
-        console.warn("Cohere error, falling back:", cohereErr);
+      } catch (err) {
+        lastBody = err instanceof Error ? err.message : String(err);
+        console.warn(`Cohere attempt ${attempt + 1} error:`, lastBody);
       }
+      // Exponential backoff with jitter
+      const delay = Math.min(15000, 1500 * Math.pow(2, attempt)) + Math.random() * 500;
+      await new Promise(r => setTimeout(r, delay));
     }
-
-    // Fallback: Lovable AI Gateway
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "No AI provider available" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const lovableMessages: any[] = [];
-    if (systemPrompt) {
-      lovableMessages.push({ role: "system", content: systemPrompt });
-    }
-    for (const msg of messages) {
-      lovableMessages.push({ role: msg.role === "assistant" ? "assistant" : "user", content: msg.content });
-    }
-
-    const lovableResponse = await fetch("https://ai.lovable.dev/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: lovableMessages,
-      }),
-    });
-
-    if (!lovableResponse.ok) {
-      const errText = await lovableResponse.text();
-      console.error("Lovable AI error:", lovableResponse.status, errText);
-      return new Response(
-        JSON.stringify({ error: `AI error: ${lovableResponse.status}` }),
-        { status: lovableResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const lovableData = await lovableResponse.json();
-    const content = lovableData.choices?.[0]?.message?.content || "";
 
     return new Response(
-      JSON.stringify({ content }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: `Cohere unavailable after retries (status ${lastStatus}): ${lastBody.slice(0, 200)}` }),
+      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (e) {
