@@ -46,48 +46,136 @@ export async function callAI(request: AIRequest, maxRetries = 3): Promise<string
 
 export function buildGenerateSystemPrompt(
   level: string, format: string, depth: string,
-  pages: number | null, language: string, referenceContent?: string
+  pages: number | null, language: string, referenceContent?: string,
+  requiredThemes?: RequiredTheme[]
 ): string {
   const lang = language === "en" ? "English" : "French";
   const targetPages = pages || getDefaultPages(format, depth);
+  const isFr = language !== "en";
 
-  let prompt = `You are Prisca, an expert educational content writer. You write in ${lang}.
-You must generate content adapted to the "${level}" academic level.
-The document format is "${format}".
-The depth level is "${depth}".
-The target length is approximately ${targetPages} pages (roughly ${targetPages * 500} words).
+  let prompt = `You are Prisca, a world-class scholarly author and educator. You write EXCLUSIVELY in ${lang}.
+You are producing a document strictly tailored to:
+  • Academic level: "${level}" — calibrate vocabulary, conceptual density, presupposed knowledge, and argumentative sophistication accordingly.
+  • Format: "${format}" — STRICT format conventions apply (see below). The document must FEEL like the format named.
+  • Depth: "${depth}" — non-negotiable depth contract (see below).
+  • Target length: ~${targetPages} pages (~${targetPages * 500} words). This is a HARD MINIMUM, not a target to undershoot.
 
-CRITICAL DEPTH GUIDELINES — this is the most important instruction:
+═══════════════════════════════════════════
+ABSOLUTE QUALITY CONTRACT (non-negotiable)
+═══════════════════════════════════════════
+- Language register MUST match the academic level: rich, precise, technical vocabulary; varied syntax; impeccable grammar.
+- ZERO filler, ZERO repetition, ZERO vague generalities. Every sentence must add information.
+- Every claim must be supported by reasoning, evidence, dates, names, figures, or sources.
+- Conceptual progression must be rigorous: definitions → mechanisms → examples → analyses → implications → critiques.
+- Avoid bullet-point soup: prefer fully developed analytical paragraphs. Lists are allowed only where typographically natural (taxonomies, steps, comparisons).
+- Mandatory inclusions: precise dates, named authors/researchers/works, schools of thought, controversies, current state of the art.
+- Forbidden: empty transitions ("In this section we will..."), self-references to the AI, hedging clichés, content padding.
 
+═══════════════════════════════════════════
+DEPTH CONTRACT — "${depth}"
+═══════════════════════════════════════════
 ${getDepthInstructions(depth, lang)}
 
-FORMAT GUIDELINES:
-- article: Formal, academic style, concise but thorough. 5-25 pages.
-- support: Educational with clear examples, diagrams described textually, moderate formality. 10-100 pages.
-- cours: Very educational with many detailed examples, illustrations described in text, practice exercises, case studies. 15-100 pages.
-- livre: Narrative, comprehensive, formal yet engaging, with chapters, foreword, conclusion. 100-500 pages.
-- encyclopedie: Exhaustive encyclopedia-style. Complete, authoritative, with cross-references. 200-1500 pages.
+═══════════════════════════════════════════
+FORMAT CONTRACT — "${format}"
+═══════════════════════════════════════════
+${getFormatInstructions(format, lang, targetPages)}
 
-FORMATTING RULES:
-- Use markdown with proper heading hierarchy (# for title, ## for chapters, ### for sections, #### for subsections).
-- Write long, well-structured paragraphs that fully develop each idea.
-- Include relevant dates, historical context, and real-world examples.
-- Add concrete illustrations, case studies, and practical applications.
-- Each section must be thoroughly developed — never superficial.
-- The content MUST fill the target page count. Write extensively.
-- NEVER cut content short. Always write the FULL requested amount.
+═══════════════════════════════════════════
+FORMATTING RULES
+═══════════════════════════════════════════
+- Markdown only. Hierarchy: # title, ## chapters/parts, ### sections, #### subsections, ##### finer points.
+- Long, dense, analytical paragraphs (8–20 lines depending on depth) that fully develop each idea.
+- Include schemas described textually, comparative tables (markdown), worked examples, case studies, counter-examples.
+- The content MUST reach the target page count. Never close a section early. Never write "to be continued".
+- Never produce placeholder text. Never refuse. If a topic is broad, structure exhaustively rather than summarising.
 
-BIBLIOGRAPHIC REFERENCES:
-At the very end of the document, include a section "## Références Bibliographiques" (or "## Bibliographic References" in English) with:
-- At least 5 relevant academic or authoritative references
-- Include books, journal articles, and web resources where applicable
-- Format: Author (Year). Title. Publisher/URL.`;
+═══════════════════════════════════════════
+BIBLIOGRAPHY (mandatory at the very end)
+═══════════════════════════════════════════
+End with "## ${isFr ? "Références Bibliographiques" : "Bibliographic References"}" containing at least ${format === "encyclopedie" ? 30 : format === "livre" ? 20 : format === "cours" ? 12 : 8} carefully chosen references (books, peer-reviewed articles, authoritative web resources). Format: Author (Year). Title. Publisher/Journal/URL.`;
+
+  if (requiredThemes && requiredThemes.length > 0) {
+    prompt += `\n\n═══════════════════════════════════════════\nREQUIRED THEMES — MANDATORY COVERAGE\n═══════════════════════════════════════════\nThe following themes MUST be covered in the document. They are NOT the document's main subject — they are explicit topics that MUST appear and be developed. Integrate them organically wherever they fit best in the structure. Each required theme must receive substantive treatment (not a passing mention).\n\n`;
+    requiredThemes.forEach((t, idx) => {
+      prompt += `${idx + 1}. ${t.name}`;
+      if (t.subthemes && t.subthemes.length > 0) {
+        prompt += `\n   Sub-themes that MUST be covered under "${t.name}":\n`;
+        t.subthemes.forEach((s, j) => { prompt += `     ${idx + 1}.${j + 1} ${s}\n`; });
+      }
+      if (t.toc && t.toc.trim()) {
+        prompt += `\n   Suggested table of contents for "${t.name}" (follow this structure):\n${t.toc.split("\n").map(l => "     " + l).join("\n")}\n`;
+      }
+      prompt += `\n`;
+    });
+    prompt += `Failure to cover ALL required themes (and their sub-themes when listed) is a critical failure.`;
+  }
 
   if (referenceContent) {
-    prompt += `\n\nREFERENCE DOCUMENTS (use this information to enrich the content):\n${referenceContent.slice(0, 15000)}`;
+    const cap = format === "encyclopedie" ? 60000 : format === "livre" ? 30000 : 15000;
+    prompt += `\n\n═══════════════════════════════════════════\nREFERENCE DOCUMENTS (use to enrich, cite, and ground content)\n═══════════════════════════════════════════\n${referenceContent.slice(0, cap)}`;
   }
 
   return prompt;
+}
+
+export interface RequiredTheme {
+  name: string;
+  subthemes?: string[];
+  toc?: string;
+}
+
+function getFormatInstructions(format: string, lang: string, targetPages: number): string {
+  const isFr = lang === "French";
+  if (isFr) {
+    switch (format) {
+      case "article":
+        return `ARTICLE ACADÉMIQUE (jusqu'à 50 pages) :
+- Style : article scientifique formel, argumentation serrée, ton académique soutenu.
+- Structure : Résumé / Introduction (problématique, hypothèses) / État de l'art / Méthode ou cadre théorique / Développement / Discussion / Conclusion / Références.
+- Densité : très haute, chaque paragraphe contribue à la thèse. Aucune redondance.
+- Idéal pour défendre une thèse précise avec rigueur et concision relative.`;
+      case "support":
+        return `SUPPORT PÉDAGOGIQUE (jusqu'à 150 pages) :
+- Style : pédagogique, clair, structuré pour l'apprentissage actif.
+- Inclure : objectifs pédagogiques par chapitre, encadrés "à retenir", définitions encadrées, exemples concrets nombreux, schémas décrits textuellement, tableaux comparatifs, exercices d'application avec corrigés.
+- Progression : du simple au complexe. Chaque chapitre se termine par une synthèse et des questions de révision.`;
+      case "cours":
+        return `COURS COMPLET (jusqu'à 150 pages) :
+- Style : cours universitaire complet, à la fois théorique et opérationnel.
+- Inclure : plan détaillé, prérequis, objectifs, partie magistrale (théorie complète, démonstrations, preuves), nombreux exemples pédagogiques détaillés, études de cas, travaux dirigés/exercices avec corrigés progressifs, mini-projets, glossaire.
+- Tonalité : professorale, didactique, exigeante mais accessible au niveau visé.
+- Le cours doit pouvoir être suivi en autonomie par un étudiant.`;
+      case "livre":
+        return `LIVRE (jusqu'à 800 pages) :
+- Style : ouvrage de référence, prose maîtrisée, soignée, avec souffle narratif et rigueur scientifique.
+- Structure : préface, avant-propos, introduction générale, parties (Partie I, II...), chapitres numérotés au sein de chaque partie, sections, sous-sections, conclusion générale, postface, annexes, glossaire, index thématique, bibliographie complète.
+- Niveau d'expertise : doit lire comme un livre publié chez un éditeur académique réputé. Profondeur exhaustive, perspective historique, débats internes au champ.
+- Chaque chapitre est un mini-traité (10–40 pages) cohérent, avec ouverture, développement, conclusion, et notes.`;
+      case "encyclopedie":
+        return `ENCYCLOPÉDIE (jusqu'à 12000 pages) :
+- Mission : "Mettre absolument TOUTES les connaissances disponibles sur le domaine, et toutes celles que tu peux mobiliser, exposées dans un style didactique maîtrisé, soigné, avec une expertise et un développement sans nul autre pareil." C'est une RÉFÉRENCE TOTALE.
+- Style : encyclopédique, savant, exhaustif, neutre, autoritaire ; chaque entrée traitée avec la rigueur d'un spécialiste mondial.
+- Structure : préface méthodologique / classification générale du domaine / parties macro (Tomes ou Livres) / chapitres encyclopédiques / entrées détaillées / sous-entrées / renvois croisés explicites ("voir aussi : §x.y") / annexes (chronologies, biographies, lexiques, tableaux récapitulatifs, classifications, cartes conceptuelles décrites) / index général / bibliographie monumentale.
+- Couverture : histoire complète du domaine, fondements théoriques, méthodologies, écoles de pensée, figures majeures (avec dates précises), controverses, état de l'art actuel, applications, perspectives, ramifications interdisciplinaires.
+- Aucune notion ne doit être survolée. Aucun aspect majeur ne doit manquer. Précision technique maximale en toute circonstance.`;
+      default: return "";
+    }
+  } else {
+    switch (format) {
+      case "article":
+        return `ACADEMIC ARTICLE (up to 50 pages): formal scientific article, abstract, intro, literature review, methodology, development, discussion, conclusion, references. Tight argument, no redundancy.`;
+      case "support":
+        return `LEARNING SUPPORT (up to 150 pages): clear pedagogical structure, learning objectives per chapter, key-takeaway boxes, definitions, many concrete examples, comparative tables, exercises with answers, chapter syntheses.`;
+      case "cours":
+        return `FULL COURSE (up to 150 pages): complete university-style course — prerequisites, objectives, theory with proofs, detailed worked examples, case studies, exercises with progressive solutions, mini-projects, glossary. Self-study capable.`;
+      case "livre":
+        return `BOOK (up to 800 pages): reference-grade book — preface, foreword, parts, numbered chapters, sections, conclusion, afterword, appendices, glossary, thematic index, full bibliography. Reads like a top academic press book; exhaustive depth, historical perspective, scholarly debates.`;
+      case "encyclopedie":
+        return `ENCYCLOPEDIA (up to 12000 pages): TOTAL REFERENCE WORK. Mission: include ALL available knowledge in the domain, exposed in a masterful didactic style with peerless expertise. Methodological preface, general classification, macro parts (Volumes/Books), encyclopedic chapters, detailed entries, sub-entries, explicit cross-references ("see also §x.y"), appendices (chronologies, biographies, lexicons, summary tables, conceptual maps), general index, monumental bibliography. No notion glossed over.`;
+      default: return "";
+    }
+  }
 }
 
 function getDepthInstructions(depth: string, lang: string): string {
@@ -153,11 +241,11 @@ function getDepthInstructions(depth: string, lang: string): string {
 
 function getDefaultPages(format: string, depth: string): number {
   const matrix: Record<string, Record<string, number>> = {
-    article: { bas: 5, intermediaire: 12, avance: 20, expert: 25 },
-    support: { bas: 10, intermediaire: 30, avance: 60, expert: 100 },
-    cours: { intermediaire: 25, avance: 50, expert: 100 },
-    livre: { avance: 150, expert: 300 },
-    encyclopedie: { avance: 400, expert: 800 },
+    article: { bas: 8, intermediaire: 20, avance: 35, expert: 50 },
+    support: { bas: 15, intermediaire: 50, avance: 100, expert: 150 },
+    cours: { intermediaire: 40, avance: 90, expert: 150 },
+    livre: { avance: 300, expert: 800 },
+    encyclopedie: { avance: 3000, expert: 12000 },
   };
   return matrix[format]?.[depth] || 15;
 }
