@@ -594,9 +594,10 @@ export async function generateDocumentChunked(
   pages: number | null, language: string, tableOfContents: string,
   onProgress: (progress: number, step: string, partial: { toc?: string; content?: string; sectionIdx?: number; totalSections?: number }) => void,
   referenceContent?: string,
-  resumeFrom?: { toc: string; content: string; nextSectionIdx: number }
+  resumeFrom?: { toc: string; content: string; nextSectionIdx: number },
+  requiredThemes?: RequiredTheme[]
 ): Promise<{ toc: string; content: string }> {
-  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent);
+  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent, requiredThemes);
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
 
@@ -607,9 +608,20 @@ export async function generateDocumentChunked(
   } else {
     onProgress(5, isFr ? `Analyse et structuration : ${topic.slice(0, 50)}...` : `Analyzing and structuring: ${topic.slice(0, 50)}...`, {});
 
+    let requiredBlock = "";
+    if (requiredThemes && requiredThemes.length > 0) {
+      requiredBlock = `\n\nREQUIRED THEMES — these MUST appear as developed parts of the table of contents (they are not the document subject; they are mandatory coverage areas). Integrate them organically wherever they fit best:\n` +
+        requiredThemes.map((t, i) => {
+          let s = `${i + 1}. ${t.name}`;
+          if (t.subthemes?.length) s += `\n   sub-themes: ${t.subthemes.join("; ")}`;
+          if (t.toc?.trim()) s += `\n   suggested structure:\n${t.toc.split("\n").map(l => "     " + l).join("\n")}`;
+          return s;
+        }).join("\n");
+    }
+
     const tocPrompt = tableOfContents
-      ? `Generate a detailed table of contents for a document about "${topic}" based on these guidelines:\n${tableOfContents}\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. List ONLY the table of contents, one entry per line, with section numbers.`
-      : `Generate a detailed table of contents for a document about "${topic}".\n\nIMPORTANT: The document must be approximately ${targetPages} pages long. Generate enough sections and subsections to fill this length. For ${targetPages} pages, you need at least ${Math.max(5, Math.ceil(targetPages / 10))} major sections. List ONLY the table of contents, one entry per line, with section numbers.`;
+      ? `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}" based on these user-provided guidelines:\n${tableOfContents}\n${requiredBlock}\n\nIMPORTANT: The document must be approximately ${targetPages} pages. Generate enough major parts, chapters, sections and subsections to fill this length authentically. For ${targetPages} pages, plan at least ${Math.max(8, Math.ceil(targetPages / 15))} major sections, each with multiple subsections. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`
+      : `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}".${requiredBlock}\n\nIMPORTANT: The document must be approximately ${targetPages} pages. For ${targetPages} pages, plan at least ${Math.max(8, Math.ceil(targetPages / 15))} major sections, each with multiple subsections. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`;
 
     toc = await callAI({
       action: "generate_toc",
