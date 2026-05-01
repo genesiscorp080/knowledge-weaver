@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDocuments } from "@/contexts/DocumentContext";
-import { generateDocumentChunked, estimatePageCount, checkTopicAppropriate } from "@/lib/ai";
+import { generateDocumentChunked, estimatePageCount, checkTopicAppropriate, RequiredTheme } from "@/lib/ai";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ export interface GenerationJob {
   targetPages: number;
   tableOfContents: string;
   referenceContent?: string;
+  requiredThemes?: RequiredTheme[];
   status: "queued" | "moderating" | "generating" | "paused" | "completed" | "failed";
   progress: number;
   currentStep: string;
@@ -155,7 +156,8 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
           }));
         },
         job.referenceContent,
-        resumeState
+        resumeState,
+        job.requiredThemes
       );
 
       // Clear resume state on success
