@@ -135,10 +135,6 @@ export interface RequiredTheme {
   toc?: string;
 }
 
-function getFormatInstructions(format: string, lang: string, targetPages: number): string {
-  return _getFormatInstructions(format, lang, targetPages);
-}
-
 function getPageCountContract(targetPages: number, isFr: boolean): string {
   // Tolerance margins per the product spec:
   //  - ≤300 pages: 5% margin   →  [0.95 * t , 1.05 * t]
