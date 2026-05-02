@@ -774,6 +774,43 @@ export async function generateDocumentChunked(
     }
   }
 
+  // Enforce the page-count contract: if the produced core content is below the
+  // lower bound of the tolerance window, run up to 3 expansion passes that
+  // deepen existing sections (no new top-level chapters — keeps structure clean).
+  const pct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
+  const minPages = Math.floor(targetPages * (1 - pct / 100));
+  let currentPages = estimatePageCount(fullContent);
+  let expansionPass = 0;
+  while (currentPages < minPages && expansionPass < 3) {
+    expansionPass++;
+    const deficit = minPages - currentPages;
+    const wordsNeeded = deficit * 500;
+    onProgress(
+      96,
+      isFr
+        ? `Approfondissement (passe ${expansionPass}) : +${deficit} pages requises...`
+        : `Deepening pass ${expansionPass}: +${deficit} pages required...`,
+      { toc, content: fullContent }
+    );
+    try {
+      const expansionPrompt = `The document so far is approximately ${currentPages} pages but the contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}). It currently falls SHORT by ~${deficit} pages.\n\nProduce ADDITIONAL CORE CONTENT of approximately ${wordsNeeded} words that DEEPENS the existing structure — do NOT introduce new top-level chapters. Acceptable additions:\n- New developed subsections under existing sections (use ### / #### headings).\n- Worked examples, case studies, comparative tables, counter-examples, historical perspectives, debates, named scholars with dates.\n- Critical analyses and interdisciplinary connections.\n\nReturn ONLY the new content, formatted in markdown, ready to be appended at the end of the document. Do NOT repeat the bibliography or any front/back matter. Do NOT restate what is already covered. Continue in the same voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 1500 characters of the document so far (so you can continue smoothly):\n${fullContent.slice(-1500)}`;
+      const extra = await callAI({
+        action: "expand_document",
+        messages: [{ role: "user", content: expansionPrompt }],
+        systemPrompt,
+      });
+      if (extra && extra.trim().length > 0) {
+        fullContent += "\n\n" + extra.trim();
+        currentPages = estimatePageCount(fullContent);
+      } else {
+        break;
+      }
+    } catch (err) {
+      console.warn("Expansion pass failed:", err);
+      break;
+    }
+  }
+
   onProgress(98, isFr ? "Finalisation du document..." : "Finalizing document...", { toc, content: fullContent });
   return { toc, content: fullContent };
 }
