@@ -58,7 +58,12 @@ You are producing a document strictly tailored to:
   • Academic level: "${level}" — calibrate vocabulary, conceptual density, presupposed knowledge, and argumentative sophistication accordingly.
   • Format: "${format}" — STRICT format conventions apply (see below). The document must FEEL like the format named.
   • Depth: "${depth}" — non-negotiable depth contract (see below).
-  • Target length: ~${targetPages} pages (~${targetPages * 500} words). This is a HARD MINIMUM, not a target to undershoot.
+  • Target length: ${targetPages} pages of CORE CONTENT (~${targetPages * 500} words).
+
+═══════════════════════════════════════════
+PAGE COUNT CONTRACT (STRICTLY ENFORCED)
+═══════════════════════════════════════════
+${getPageCountContract(targetPages, isFr)}
 
 ═══════════════════════════════════════════
 ABSOLUTE QUALITY CONTRACT (non-negotiable)
@@ -70,6 +75,7 @@ ABSOLUTE QUALITY CONTRACT (non-negotiable)
 - Avoid bullet-point soup: prefer fully developed analytical paragraphs. Lists are allowed only where typographically natural (taxonomies, steps, comparisons).
 - Mandatory inclusions: precise dates, named authors/researchers/works, schools of thought, controversies, current state of the art.
 - Forbidden: empty transitions ("In this section we will..."), self-references to the AI, hedging clichés, content padding.
+- Actively draw on the broadest possible scholarly base: even when no reference PDFs are supplied, you MUST mobilise knowledge from recognised online sources (peer-reviewed journals, university press books, authoritative reference works, academic encyclopedias, official institutional publications). Cite specific authors, works, dates and — when relevant — accessible URLs/DOIs.
 
 ═══════════════════════════════════════════
 DEPTH CONTRACT — "${depth}"
@@ -85,18 +91,22 @@ ${getFormatInstructions(format, lang, targetPages)}
 FORMATTING RULES
 ═══════════════════════════════════════════
 - Markdown only. Hierarchy: # title, ## chapters/parts, ### sections, #### subsections, ##### finer points.
+- Titles and headings (#, ##, ###, ####, #####) will be rendered CENTERED. Body paragraphs will be rendered JUSTIFIED. Write accordingly: short, balanced heading wording; full, well-built paragraphs that flow naturally when justified.
 - Long, dense, analytical paragraphs (8–20 lines depending on depth) that fully develop each idea.
 - Include schemas described textually, comparative tables (markdown), worked examples, case studies, counter-examples.
 - The content MUST reach the target page count. Never close a section early. Never write "to be continued".
 - Never produce placeholder text. Never refuse. If a topic is broad, structure exhaustively rather than summarising.
+- Use blank lines between paragraphs. Do NOT chain headings without intervening developed paragraphs. Keep heading wording concise so it centres cleanly.
 
 ═══════════════════════════════════════════
 BIBLIOGRAPHY (mandatory at the very end)
 ═══════════════════════════════════════════
-End with "## ${isFr ? "Références Bibliographiques" : "Bibliographic References"}" containing at least ${format === "encyclopedie" ? 30 : format === "livre" ? 20 : format === "cours" ? 12 : 8} carefully chosen references (books, peer-reviewed articles, authoritative web resources). Format: Author (Year). Title. Publisher/Journal/URL.`;
+End with "## ${isFr ? "Références Bibliographiques" : "Bibliographic References"}" containing at least ${format === "encyclopedie" ? 30 : format === "livre" ? 20 : format === "cours" ? 12 : 8} carefully chosen references (books, peer-reviewed articles, authoritative web resources, including online sources you mobilise from your knowledge). Format: Author (Year). Title. Publisher/Journal/URL.
+
+IMPORTANT — pages excluded from the page count: preface, foreword ("avant-propos"), bibliography/references, index, glossary, and appendices DO NOT count toward the ${targetPages}-page target. They are SUPPLEMENTARY. Only the core content (introduction, parts, chapters, sections, conclusion) counts.`;
 
   if (requiredThemes && requiredThemes.length > 0) {
-    prompt += `\n\n═══════════════════════════════════════════\nREQUIRED THEMES — MANDATORY COVERAGE\n═══════════════════════════════════════════\nThe following themes MUST be covered in the document. They are NOT the document's main subject — they are explicit topics that MUST appear and be developed. Integrate them organically wherever they fit best in the structure. Each required theme must receive substantive treatment (not a passing mention).\n\n`;
+    prompt += `\n\n═══════════════════════════════════════════\nREQUIRED THEMES — OPTIONAL USER-SPECIFIED COVERAGE\n═══════════════════════════════════════════\nThe user has OPTIONALLY listed the following themes. They are not the document's main subject, but if listed they MUST appear and be substantively developed in the most natural place within the structure. Integrate them organically; do not force a separate appendix unless it makes editorial sense.\n\n`;
     requiredThemes.forEach((t, idx) => {
       prompt += `${idx + 1}. ${t.name}`;
       if (t.subthemes && t.subthemes.length > 0) {
@@ -108,7 +118,7 @@ End with "## ${isFr ? "Références Bibliographiques" : "Bibliographic Reference
       }
       prompt += `\n`;
     });
-    prompt += `Failure to cover ALL required themes (and their sub-themes when listed) is a critical failure.`;
+    prompt += `Each listed theme (and its listed sub-themes) MUST be covered with substantive treatment. Themes not listed are simply not required.`;
   }
 
   if (referenceContent) {
@@ -123,6 +133,33 @@ export interface RequiredTheme {
   name: string;
   subthemes?: string[];
   toc?: string;
+}
+
+function getPageCountContract(targetPages: number, isFr: boolean): string {
+  // Tolerance margins per the product spec:
+  //  - ≤300 pages: 5% margin   →  [0.95 * t , 1.05 * t]
+  //  - 301–700 pages: 8% margin →  [0.92 * t , 1.08 * t]
+  //  - ≥701 pages: 10% margin   →  [0.90 * t , 1.10 * t]
+  let pct: number;
+  if (targetPages <= 300) pct = 5;
+  else if (targetPages <= 700) pct = 8;
+  else pct = 10;
+  const lo = Math.floor(targetPages * (1 - pct / 100));
+  const hi = Math.ceil(targetPages * (1 + pct / 100));
+  if (isFr) {
+    return `- Cible : ${targetPages} pages de CONTENU PRINCIPAL (≈ ${targetPages * 500} mots).
+- Tolérance : marge de ±${pct}%. Le volume final de contenu principal DOIT être compris entre ${lo} et ${hi} pages.
+- Sont EXCLUS du décompte (donc à produire EN PLUS si pertinents) : préface, avant-propos, dédicace, remerciements, table des matières, bibliographie/références, glossaire, index, annexes.
+- Sont INCLUS dans le décompte : introduction générale, parties, chapitres, sections, sous-sections, études de cas, exemples, conclusion générale.
+- Vous DEVEZ produire suffisamment de contenu pour atteindre cette plage. Ne jamais conclure prématurément. Si le volume cible n'est pas atteint, approfondissez davantage chaque section (exemples supplémentaires, analyses, perspectives historiques, débats).
+- Référence pratique : 1 page ≈ 500 mots de prose dense. Cible mots : ${lo * 500}–${hi * 500} mots de contenu principal.`;
+  }
+  return `- Target: ${targetPages} pages of CORE CONTENT (≈ ${targetPages * 500} words).
+- Tolerance: ±${pct}% margin. Final core-content volume MUST land between ${lo} and ${hi} pages.
+- EXCLUDED from the count (produced in addition when relevant): preface, foreword, dedication, acknowledgements, table of contents, bibliography/references, glossary, index, appendices.
+- INCLUDED in the count: general introduction, parts, chapters, sections, subsections, case studies, examples, general conclusion.
+- You MUST generate enough content to land in that range. Never conclude early. If short, deepen each section (more examples, analyses, historical perspectives, debates).
+- Reference: 1 page ≈ 500 words of dense prose. Word target: ${lo * 500}–${hi * 500} words of core content.`;
 }
 
 function getFormatInstructions(format: string, lang: string, targetPages: number): string {
@@ -453,12 +490,33 @@ export function generatePDF(title: string, content: string): void {
           .replace(/\*(.+?)\*/g, "$1")
           .replace(/`(.+?)`/g, "$1")
           .replace(/^[-*]\s/, "• ");
-        const splitLines = doc.splitTextToSize(text, contentWidth);
-        for (const sLine of splitLines) {
+        const isBullet = text.startsWith("• ");
+        const splitLines: string[] = doc.splitTextToSize(text, contentWidth);
+        for (let li = 0; li < splitLines.length; li++) {
+          const sLine = splitLines[li];
           if (y > pageHeight - 30) y = addNewPage();
-          doc.text(sLine, margin, y, { maxWidth: contentWidth });
+          const isLast = li === splitLines.length - 1;
+          // Justify body text: distribute extra space across words on full lines.
+          // Skip justification for bullet rows and the last line of a paragraph.
+          if (!isBullet && !isLast && sLine.trim().split(/\s+/).length > 1) {
+            const words = sLine.split(/\s+/).filter(Boolean);
+            const wordsWidth = words.reduce((sum, w) => sum + doc.getTextWidth(w), 0);
+            const spaceCount = words.length - 1;
+            const extraSpace = (contentWidth - wordsWidth) / spaceCount;
+            // Cap excessive spacing to avoid ugly rivers
+            const space = Math.min(extraSpace, doc.getTextWidth(" ") * 3);
+            let cursorX = margin;
+            for (let wi = 0; wi < words.length; wi++) {
+              doc.text(words[wi], cursorX, y);
+              cursorX += doc.getTextWidth(words[wi]) + space;
+            }
+          } else {
+            doc.text(sLine, margin, y, { maxWidth: contentWidth });
+          }
           y += lineHeight;
         }
+        // Small paragraph spacing
+        y += 1.5;
       }
     }
     addPageNumber();
@@ -672,10 +730,11 @@ export async function generateDocumentChunked(
 
     const pagesPerSection = Math.max(3, Math.round(targetPages / totalSections));
     const wordsPerSection = pagesPerSection * 500;
+    const commonRules = `\n\nABSOLUTE REQUIREMENTS for this section:\n- Reach approximately ${wordsPerSection} words (≈ ${pagesPerSection} pages of dense prose). NEVER fall short.\n- Headings will be CENTERED and body paragraphs JUSTIFIED on render — write balanced heading wording and full, well-built paragraphs.\n- Mobilise your knowledge of online and published scholarly sources even if no reference PDFs were attached: cite specific authors, works, dates, and accessible URLs/DOIs where appropriate.\n- Do NOT write a preface, foreword, bibliography, glossary, index, or appendix here unless this section's title explicitly is one — those are handled separately and DO NOT count toward the page target.\n- Use proper markdown heading levels matching the TOC entry numbering. Never be brief or superficial.`;
 
     const sectionPrompt = i === 0
-      ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${wordsPerSection} words for this section. Be thorough and detailed. Use proper markdown headings. NEVER be brief or superficial.`
-      : `Continue writing the document about "${topic}". Now write the COMPLETE and DETAILED content for:\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${wordsPerSection} words. Continue from where you left off. Maintain the same style and depth level. Use proper markdown headings. NEVER be brief or superficial.`;
+      ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}.${commonRules}`
+      : `Continue writing the document about "${topic}". Now write the COMPLETE and DETAILED content for:\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Continue from where you left off, maintaining the same style and depth.${commonRules}`;
 
     try {
       const sectionContent = await callAI({
@@ -712,6 +771,43 @@ export async function generateDocumentChunked(
 
     if (i < totalSections - 1) {
       await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  // Enforce the page-count contract: if the produced core content is below the
+  // lower bound of the tolerance window, run up to 3 expansion passes that
+  // deepen existing sections (no new top-level chapters — keeps structure clean).
+  const pct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
+  const minPages = Math.floor(targetPages * (1 - pct / 100));
+  let currentPages = estimatePageCount(fullContent);
+  let expansionPass = 0;
+  while (currentPages < minPages && expansionPass < 3) {
+    expansionPass++;
+    const deficit = minPages - currentPages;
+    const wordsNeeded = deficit * 500;
+    onProgress(
+      96,
+      isFr
+        ? `Approfondissement (passe ${expansionPass}) : +${deficit} pages requises...`
+        : `Deepening pass ${expansionPass}: +${deficit} pages required...`,
+      { toc, content: fullContent }
+    );
+    try {
+      const expansionPrompt = `The document so far is approximately ${currentPages} pages but the contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}). It currently falls SHORT by ~${deficit} pages.\n\nProduce ADDITIONAL CORE CONTENT of approximately ${wordsNeeded} words that DEEPENS the existing structure — do NOT introduce new top-level chapters. Acceptable additions:\n- New developed subsections under existing sections (use ### / #### headings).\n- Worked examples, case studies, comparative tables, counter-examples, historical perspectives, debates, named scholars with dates.\n- Critical analyses and interdisciplinary connections.\n\nReturn ONLY the new content, formatted in markdown, ready to be appended at the end of the document. Do NOT repeat the bibliography or any front/back matter. Do NOT restate what is already covered. Continue in the same voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 1500 characters of the document so far (so you can continue smoothly):\n${fullContent.slice(-1500)}`;
+      const extra = await callAI({
+        action: "expand_document",
+        messages: [{ role: "user", content: expansionPrompt }],
+        systemPrompt,
+      });
+      if (extra && extra.trim().length > 0) {
+        fullContent += "\n\n" + extra.trim();
+        currentPages = estimatePageCount(fullContent);
+      } else {
+        break;
+      }
+    } catch (err) {
+      console.warn("Expansion pass failed:", err);
+      break;
     }
   }
 

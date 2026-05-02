@@ -64,7 +64,7 @@ const depthFormatRestrictions: Record<string, string[]> = {
   bas: ["article", "support"],
   intermediaire: ["article", "support", "cours"],
   avance: ["support", "cours", "livre", "encyclopedie"],
-  expert: ["cours", "livre", "encyclopedie"],
+  expert: ["livre", "encyclopedie"],
 };
 
 const HomePage = () => {
