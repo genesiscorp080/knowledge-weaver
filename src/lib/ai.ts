@@ -58,7 +58,12 @@ You are producing a document strictly tailored to:
   • Academic level: "${level}" — calibrate vocabulary, conceptual density, presupposed knowledge, and argumentative sophistication accordingly.
   • Format: "${format}" — STRICT format conventions apply (see below). The document must FEEL like the format named.
   • Depth: "${depth}" — non-negotiable depth contract (see below).
-  • Target length: ~${targetPages} pages (~${targetPages * 500} words). This is a HARD MINIMUM, not a target to undershoot.
+  • Target length: ${targetPages} pages of CORE CONTENT (~${targetPages * 500} words).
+
+═══════════════════════════════════════════
+PAGE COUNT CONTRACT (STRICTLY ENFORCED)
+═══════════════════════════════════════════
+${getPageCountContract(targetPages, isFr)}
 
 ═══════════════════════════════════════════
 ABSOLUTE QUALITY CONTRACT (non-negotiable)
@@ -70,6 +75,7 @@ ABSOLUTE QUALITY CONTRACT (non-negotiable)
 - Avoid bullet-point soup: prefer fully developed analytical paragraphs. Lists are allowed only where typographically natural (taxonomies, steps, comparisons).
 - Mandatory inclusions: precise dates, named authors/researchers/works, schools of thought, controversies, current state of the art.
 - Forbidden: empty transitions ("In this section we will..."), self-references to the AI, hedging clichés, content padding.
+- Actively draw on the broadest possible scholarly base: even when no reference PDFs are supplied, you MUST mobilise knowledge from recognised online sources (peer-reviewed journals, university press books, authoritative reference works, academic encyclopedias, official institutional publications). Cite specific authors, works, dates and — when relevant — accessible URLs/DOIs.
 
 ═══════════════════════════════════════════
 DEPTH CONTRACT — "${depth}"
@@ -85,18 +91,22 @@ ${getFormatInstructions(format, lang, targetPages)}
 FORMATTING RULES
 ═══════════════════════════════════════════
 - Markdown only. Hierarchy: # title, ## chapters/parts, ### sections, #### subsections, ##### finer points.
+- Titles and headings (#, ##, ###, ####, #####) will be rendered CENTERED. Body paragraphs will be rendered JUSTIFIED. Write accordingly: short, balanced heading wording; full, well-built paragraphs that flow naturally when justified.
 - Long, dense, analytical paragraphs (8–20 lines depending on depth) that fully develop each idea.
 - Include schemas described textually, comparative tables (markdown), worked examples, case studies, counter-examples.
 - The content MUST reach the target page count. Never close a section early. Never write "to be continued".
 - Never produce placeholder text. Never refuse. If a topic is broad, structure exhaustively rather than summarising.
+- Use blank lines between paragraphs. Do NOT chain headings without intervening developed paragraphs. Keep heading wording concise so it centres cleanly.
 
 ═══════════════════════════════════════════
 BIBLIOGRAPHY (mandatory at the very end)
 ═══════════════════════════════════════════
-End with "## ${isFr ? "Références Bibliographiques" : "Bibliographic References"}" containing at least ${format === "encyclopedie" ? 30 : format === "livre" ? 20 : format === "cours" ? 12 : 8} carefully chosen references (books, peer-reviewed articles, authoritative web resources). Format: Author (Year). Title. Publisher/Journal/URL.`;
+End with "## ${isFr ? "Références Bibliographiques" : "Bibliographic References"}" containing at least ${format === "encyclopedie" ? 30 : format === "livre" ? 20 : format === "cours" ? 12 : 8} carefully chosen references (books, peer-reviewed articles, authoritative web resources, including online sources you mobilise from your knowledge). Format: Author (Year). Title. Publisher/Journal/URL.
+
+IMPORTANT — pages excluded from the page count: preface, foreword ("avant-propos"), bibliography/references, index, glossary, and appendices DO NOT count toward the ${targetPages}-page target. They are SUPPLEMENTARY. Only the core content (introduction, parts, chapters, sections, conclusion) counts.`;
 
   if (requiredThemes && requiredThemes.length > 0) {
-    prompt += `\n\n═══════════════════════════════════════════\nREQUIRED THEMES — MANDATORY COVERAGE\n═══════════════════════════════════════════\nThe following themes MUST be covered in the document. They are NOT the document's main subject — they are explicit topics that MUST appear and be developed. Integrate them organically wherever they fit best in the structure. Each required theme must receive substantive treatment (not a passing mention).\n\n`;
+    prompt += `\n\n═══════════════════════════════════════════\nREQUIRED THEMES — OPTIONAL USER-SPECIFIED COVERAGE\n═══════════════════════════════════════════\nThe user has OPTIONALLY listed the following themes. They are not the document's main subject, but if listed they MUST appear and be substantively developed in the most natural place within the structure. Integrate them organically; do not force a separate appendix unless it makes editorial sense.\n\n`;
     requiredThemes.forEach((t, idx) => {
       prompt += `${idx + 1}. ${t.name}`;
       if (t.subthemes && t.subthemes.length > 0) {
@@ -108,7 +118,7 @@ End with "## ${isFr ? "Références Bibliographiques" : "Bibliographic Reference
       }
       prompt += `\n`;
     });
-    prompt += `Failure to cover ALL required themes (and their sub-themes when listed) is a critical failure.`;
+    prompt += `Each listed theme (and its listed sub-themes) MUST be covered with substantive treatment. Themes not listed are simply not required.`;
   }
 
   if (referenceContent) {
