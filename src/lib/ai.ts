@@ -162,7 +162,7 @@ function getPageCountContract(targetPages: number, isFr: boolean): string {
 - Reference: 1 page ≈ 500 words of dense prose. Word target: ${lo * 500}–${hi * 500} words of core content.`;
 }
 
-function _getFormatInstructions(format: string, lang: string, targetPages: number): string {
+function getFormatInstructions(format: string, lang: string, targetPages: number): string {
   const isFr = lang === "French";
   if (isFr) {
     switch (format) {
