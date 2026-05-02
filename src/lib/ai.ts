@@ -136,6 +136,37 @@ export interface RequiredTheme {
 }
 
 function getFormatInstructions(format: string, lang: string, targetPages: number): string {
+  return _getFormatInstructions(format, lang, targetPages);
+}
+
+function getPageCountContract(targetPages: number, isFr: boolean): string {
+  // Tolerance margins per the product spec:
+  //  - ≤300 pages: 5% margin   →  [0.95 * t , 1.05 * t]
+  //  - 301–700 pages: 8% margin →  [0.92 * t , 1.08 * t]
+  //  - ≥701 pages: 10% margin   →  [0.90 * t , 1.10 * t]
+  let pct: number;
+  if (targetPages <= 300) pct = 5;
+  else if (targetPages <= 700) pct = 8;
+  else pct = 10;
+  const lo = Math.floor(targetPages * (1 - pct / 100));
+  const hi = Math.ceil(targetPages * (1 + pct / 100));
+  if (isFr) {
+    return `- Cible : ${targetPages} pages de CONTENU PRINCIPAL (≈ ${targetPages * 500} mots).
+- Tolérance : marge de ±${pct}%. Le volume final de contenu principal DOIT être compris entre ${lo} et ${hi} pages.
+- Sont EXCLUS du décompte (donc à produire EN PLUS si pertinents) : préface, avant-propos, dédicace, remerciements, table des matières, bibliographie/références, glossaire, index, annexes.
+- Sont INCLUS dans le décompte : introduction générale, parties, chapitres, sections, sous-sections, études de cas, exemples, conclusion générale.
+- Vous DEVEZ produire suffisamment de contenu pour atteindre cette plage. Ne jamais conclure prématurément. Si le volume cible n'est pas atteint, approfondissez davantage chaque section (exemples supplémentaires, analyses, perspectives historiques, débats).
+- Référence pratique : 1 page ≈ 500 mots de prose dense. Cible mots : ${lo * 500}–${hi * 500} mots de contenu principal.`;
+  }
+  return `- Target: ${targetPages} pages of CORE CONTENT (≈ ${targetPages * 500} words).
+- Tolerance: ±${pct}% margin. Final core-content volume MUST land between ${lo} and ${hi} pages.
+- EXCLUDED from the count (produced in addition when relevant): preface, foreword, dedication, acknowledgements, table of contents, bibliography/references, glossary, index, appendices.
+- INCLUDED in the count: general introduction, parts, chapters, sections, subsections, case studies, examples, general conclusion.
+- You MUST generate enough content to land in that range. Never conclude early. If short, deepen each section (more examples, analyses, historical perspectives, debates).
+- Reference: 1 page ≈ 500 words of dense prose. Word target: ${lo * 500}–${hi * 500} words of core content.`;
+}
+
+function _getFormatInstructions(format: string, lang: string, targetPages: number): string {
   const isFr = lang === "French";
   if (isFr) {
     switch (format) {
