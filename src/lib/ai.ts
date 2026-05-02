@@ -490,12 +490,33 @@ export function generatePDF(title: string, content: string): void {
           .replace(/\*(.+?)\*/g, "$1")
           .replace(/`(.+?)`/g, "$1")
           .replace(/^[-*]\s/, "• ");
-        const splitLines = doc.splitTextToSize(text, contentWidth);
-        for (const sLine of splitLines) {
+        const isBullet = text.startsWith("• ");
+        const splitLines: string[] = doc.splitTextToSize(text, contentWidth);
+        for (let li = 0; li < splitLines.length; li++) {
+          const sLine = splitLines[li];
           if (y > pageHeight - 30) y = addNewPage();
-          doc.text(sLine, margin, y, { maxWidth: contentWidth });
+          const isLast = li === splitLines.length - 1;
+          // Justify body text: distribute extra space across words on full lines.
+          // Skip justification for bullet rows and the last line of a paragraph.
+          if (!isBullet && !isLast && sLine.trim().split(/\s+/).length > 1) {
+            const words = sLine.split(/\s+/).filter(Boolean);
+            const wordsWidth = words.reduce((sum, w) => sum + doc.getTextWidth(w), 0);
+            const spaceCount = words.length - 1;
+            const extraSpace = (contentWidth - wordsWidth) / spaceCount;
+            // Cap excessive spacing to avoid ugly rivers
+            const space = Math.min(extraSpace, doc.getTextWidth(" ") * 3);
+            let cursorX = margin;
+            for (let wi = 0; wi < words.length; wi++) {
+              doc.text(words[wi], cursorX, y);
+              cursorX += doc.getTextWidth(words[wi]) + space;
+            }
+          } else {
+            doc.text(sLine, margin, y, { maxWidth: contentWidth });
+          }
           y += lineHeight;
         }
+        // Small paragraph spacing
+        y += 1.5;
       }
     }
     addPageNumber();
