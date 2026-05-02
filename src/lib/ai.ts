@@ -730,10 +730,11 @@ export async function generateDocumentChunked(
 
     const pagesPerSection = Math.max(3, Math.round(targetPages / totalSections));
     const wordsPerSection = pagesPerSection * 500;
+    const commonRules = `\n\nABSOLUTE REQUIREMENTS for this section:\n- Reach approximately ${wordsPerSection} words (≈ ${pagesPerSection} pages of dense prose). NEVER fall short.\n- Headings will be CENTERED and body paragraphs JUSTIFIED on render — write balanced heading wording and full, well-built paragraphs.\n- Mobilise your knowledge of online and published scholarly sources even if no reference PDFs were attached: cite specific authors, works, dates, and accessible URLs/DOIs where appropriate.\n- Do NOT write a preface, foreword, bibliography, glossary, index, or appendix here unless this section's title explicitly is one — those are handled separately and DO NOT count toward the page target.\n- Use proper markdown heading levels matching the TOC entry numbering. Never be brief or superficial.`;
 
     const sectionPrompt = i === 0
-      ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${wordsPerSection} words for this section. Be thorough and detailed. Use proper markdown headings. NEVER be brief or superficial.`
-      : `Continue writing the document about "${topic}". Now write the COMPLETE and DETAILED content for:\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Write approximately ${wordsPerSection} words. Continue from where you left off. Maintain the same style and depth level. Use proper markdown headings. NEVER be brief or superficial.`;
+      ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}.${commonRules}`
+      : `Continue writing the document about "${topic}". Now write the COMPLETE and DETAILED content for:\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Continue from where you left off, maintaining the same style and depth.${commonRules}`;
 
     try {
       const sectionContent = await callAI({
