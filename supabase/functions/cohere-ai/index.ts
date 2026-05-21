@@ -109,15 +109,7 @@ serve(async (req) => {
       return { ok: false, status: lastStatus, body: lastBody };
     };
 
-    // Try Cohere first, fallback to Lovable AI on any failure
-    const cohereResult = await tryCohere();
-    if (cohereResult.ok) {
-      return new Response(
-        JSON.stringify({ content: cohereResult.content }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-    console.warn(`Cohere failed (${cohereResult.status}), falling back to Lovable AI Gateway`);
+    // Lovable AI primary (Cohere Trial quota exhausted). Cohere as fallback.
     const lovableResult = await tryLovable();
     if (lovableResult.ok) {
       return new Response(
@@ -125,10 +117,18 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    console.warn(`Lovable AI failed (${lovableResult.status}), falling back to Cohere`);
+    const cohereResult = await tryCohere();
+    if (cohereResult.ok) {
+      return new Response(
+        JSON.stringify({ content: cohereResult.content }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
       JSON.stringify({
-        error: `Tous les fournisseurs IA sont indisponibles. Cohere: ${cohereResult.status} ${String(cohereResult.body).slice(0, 120)}. Lovable AI: ${lovableResult.status} ${String(lovableResult.body).slice(0, 120)}`,
+        error: `Tous les fournisseurs IA sont indisponibles. Lovable AI: ${lovableResult.status} ${String(lovableResult.body).slice(0, 120)}. Cohere: ${cohereResult.status} ${String(cohereResult.body).slice(0, 120)}`,
       }),
       { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
