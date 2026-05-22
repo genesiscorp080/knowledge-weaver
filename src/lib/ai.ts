@@ -794,11 +794,6 @@ export async function generateDocumentChunked(
     }
   }
 
-  // Enforce the page-count contract: if the produced core content is below the
-  // lower bound of the tolerance window, run up to 3 expansion passes that
-  // deepen existing sections (no new top-level chapters — keeps structure clean).
-  const pct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
-  const minPages = Math.floor(targetPages * (1 - pct / 100));
   let currentPages = estimatePageCount(fullContent);
   let expansionPass = 0;
   while (currentPages < minPages && expansionPass < 3) {
