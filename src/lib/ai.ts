@@ -649,6 +649,27 @@ INAPPROPRIATE: [brief reason]`,
   }
 }
 
+function getInstallmentFocus(cycle: number, cycleCount: number, isFr: boolean): string {
+  const fr = [
+    "fondements, définitions rigoureuses, vocabulaire technique et périmètre conceptuel",
+    "évolution historique, auteurs majeurs, jalons, normes, écoles de pensée et controverses",
+    "mécanismes internes, architecture, modèles, taxonomies, classifications et chaînes causales",
+    "méthodes, pratiques professionnelles, procédures, outils, standards et critères de décision",
+    "études de cas approfondies, exemples réels, contre-exemples, échecs, limites et risques",
+    "comparaisons, débats experts, implications interdisciplinaires, état de l'art et perspectives futures",
+  ];
+  const en = [
+    "foundations, rigorous definitions, technical vocabulary and conceptual scope",
+    "historical evolution, major authors, milestones, standards, schools of thought and controversies",
+    "internal mechanisms, architecture, models, taxonomies, classifications and causal chains",
+    "methods, professional practice, procedures, tools, standards and decision criteria",
+    "deep case studies, real examples, counter-examples, failures, limits and risks",
+    "comparisons, expert debates, interdisciplinary implications, state of the art and future directions",
+  ];
+  const items = isFr ? fr : en;
+  return items[cycle % items.length] + (cycle >= items.length ? (isFr ? ` — approfondissement supplémentaire ${cycle + 1}/${cycleCount}` : ` — additional deepening ${cycle + 1}/${cycleCount}`) : "");
+}
+
 export async function generateDocumentChunked(
   topic: string, level: string, format: string, depth: string,
   pages: number | null, language: string, tableOfContents: string,
