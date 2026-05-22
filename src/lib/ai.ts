@@ -701,28 +701,16 @@ export async function generateDocumentChunked(
     onProgress(10, isFr ? "Structure créée" : "Structure created", { toc });
   }
 
-  const tocLines = toc.split("\n").filter((l) => l.trim().length > 0);
-  const majorSections: string[] = [];
-  let currentGroup: string[] = [];
-
-  for (const line of tocLines) {
-    const trimmed = line.trim();
-    const isMajor = /^(\d+[\.\)]|#{1,2}\s|[IVXLC]+[\.\)])/.test(trimmed) && !/^(\d+\.\d+|#{3,})/.test(trimmed);
-    if (isMajor && currentGroup.length > 0) {
-      majorSections.push(currentGroup.join("\n"));
-      currentGroup = [trimmed];
-    } else {
-      currentGroup.push(trimmed);
-    }
-  }
-  if (currentGroup.length > 0) majorSections.push(currentGroup.join("\n"));
-
-  const sections = majorSections.length >= 2 ? majorSections : tocLines.reduce<string[][]>((acc, line, i) => {
-    const chunkIdx = Math.floor(i / Math.max(1, Math.ceil(tocLines.length / 5)));
-    if (!acc[chunkIdx]) acc[chunkIdx] = [];
-    acc[chunkIdx].push(line);
-    return acc;
-  }, []).map(group => group.join("\n"));
+  const tocLines = toc.split("\n").map((l) => l.trim()).filter(Boolean);
+  const sourceUnits = tocLines.length > 0 ? tocLines : [topic];
+  const targetUnits = Math.max(sourceUnits.length, targetWritingUnits);
+  const sections = Array.from({ length: targetUnits }, (_, idx) => {
+    const tocLine = sourceUnits[idx % sourceUnits.length];
+    const cycle = Math.floor(idx / sourceUnits.length);
+    const cycleCount = Math.ceil(targetUnits / sourceUnits.length);
+    const focus = getInstallmentFocus(cycle, cycleCount, isFr);
+    return `${tocLine}\n${isFr ? "Angle d'approfondissement" : "Deepening angle"} ${cycle + 1}/${cycleCount}: ${focus}`;
+  });
 
   const totalSections = sections.length;
   let fullContent = resumeFrom?.content || "";
