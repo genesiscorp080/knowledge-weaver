@@ -684,7 +684,7 @@ export async function generateDocumentChunked(
   const tolerancePct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
   const minPages = Math.floor(targetPages * (1 - tolerancePct / 100));
   const maxPages = Math.ceil(targetPages * (1 + tolerancePct / 100));
-  const maxPagesPerCall = format === "encyclopedie" ? 4 : format === "livre" ? 3 : 2;
+  const maxPagesPerCall = format === "encyclopedie" ? 6 : format === "livre" ? 5 : 3;
   const maxOutputTokens = format === "encyclopedie" || format === "livre" ? 16000 : 12000;
   const targetWritingUnits = Math.max(1, Math.ceil(targetPages / maxPagesPerCall));
 
@@ -748,9 +748,19 @@ export async function generateDocumentChunked(
       { toc, content: fullContent, sectionIdx: i, totalSections }
     );
 
-    const pagesPerSection = Math.max(3, Math.round(targetPages / totalSections));
+    const pagesPerSection = Math.max(1, Math.ceil(targetPages / totalSections));
     const wordsPerSection = pagesPerSection * 500;
-    const commonRules = `\n\nABSOLUTE REQUIREMENTS for this section:\n- Reach approximately ${wordsPerSection} words (≈ ${pagesPerSection} pages of dense prose). NEVER fall short.\n- Headings will be CENTERED and body paragraphs JUSTIFIED on render — write balanced heading wording and full, well-built paragraphs.\n- Mobilise your knowledge of online and published scholarly sources even if no reference PDFs were attached: cite specific authors, works, dates, and accessible URLs/DOIs where appropriate.\n- Do NOT write a preface, foreword, bibliography, glossary, index, or appendix here unless this section's title explicitly is one — those are handled separately and DO NOT count toward the page target.\n- Use proper markdown heading levels matching the TOC entry numbering. Never be brief or superficial.`;
+    const commonRules = `
+
+ABSOLUTE REQUIREMENTS for this section:
+- This writing unit is part ${i + 1}/${totalSections} of a strict ${targetPages}-page document. It MUST contribute about ${pagesPerSection} full pages (≈ ${wordsPerSection} words) of CORE CONTENT.
+- Write long, expert-level analytical prose. If the topic is technical, include internals, trade-offs, implementation details, standards, failure modes, design choices, and concrete professional examples.
+- Exhaustiveness is mandatory: do not merely define the concept; cover causes, mechanisms, variants, taxonomy, historical evolution, current state of the art, edge cases, limits, critiques, comparisons, applications, and consequences.
+- Avoid summaries. Do not compress. Prefer complete paragraphs that develop one idea deeply before moving to the next.
+- Headings will be CENTERED and body paragraphs JUSTIFIED on render — write balanced heading wording and full, well-built paragraphs.
+- Mobilise your knowledge of online and published scholarly sources even if no reference PDFs were attached: cite specific authors, works, dates, and accessible URLs/DOIs where appropriate.
+- Do NOT write a preface, foreword, bibliography, glossary, index, or appendix here unless this section's title explicitly is one — those are handled separately and DO NOT count toward the page target.
+- Use proper markdown heading levels matching the TOC entry numbering. Never be brief or superficial.`;
 
     const sectionPrompt = i === 0
       ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}.${commonRules}`
@@ -761,6 +771,8 @@ export async function generateDocumentChunked(
         action: "generate_section",
         messages: [{ role: "user", content: sectionPrompt }],
         systemPrompt,
+        maxTokens: maxOutputTokens,
+        temperature: 0.5,
       });
       fullContent += (fullContent.length > 0 ? "\n\n" : "") + sectionContent;
       // Save after each section to enable resume
@@ -773,6 +785,8 @@ export async function generateDocumentChunked(
           action: "generate_section_retry",
           messages: [{ role: "user", content: simplePrompt }],
           systemPrompt,
+          maxTokens: maxOutputTokens,
+          temperature: 0.45,
         });
         fullContent += (fullContent.length > 0 ? "\n\n" : "") + fallbackContent;
       } catch (retryErr) {
@@ -813,6 +827,8 @@ export async function generateDocumentChunked(
         action: "expand_document",
         messages: [{ role: "user", content: expansionPrompt }],
         systemPrompt,
+        maxTokens: maxOutputTokens,
+        temperature: 0.45,
       });
       if (extra && extra.trim().length > 0) {
         fullContent += "\n\n" + extra.trim();
