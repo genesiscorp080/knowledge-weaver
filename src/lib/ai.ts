@@ -660,6 +660,11 @@ export async function generateDocumentChunked(
   const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent, requiredThemes);
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
+  const tolerancePct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
+  const minPages = Math.floor(targetPages * (1 - tolerancePct / 100));
+  const maxPages = Math.ceil(targetPages * (1 + tolerancePct / 100));
+  const maxPagesPerCall = format === "encyclopedie" ? 4 : format === "livre" ? 3 : 2;
+  const maxOutputTokens = format === "encyclopedie" || format === "livre" ? 16000 : 12000;
 
   let toc: string;
   if (resumeFrom?.toc) {
@@ -679,14 +684,17 @@ export async function generateDocumentChunked(
         }).join("\n");
     }
 
+    const minMajorSections = Math.max(8, Math.ceil(targetPages / 12));
     const tocPrompt = tableOfContents
-      ? `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}" based on these user-provided guidelines:\n${tableOfContents}\n${requiredBlock}\n\nIMPORTANT: The document must be approximately ${targetPages} pages. Generate enough major parts, chapters, sections and subsections to fill this length authentically. For ${targetPages} pages, plan at least ${Math.max(8, Math.ceil(targetPages / 15))} major sections, each with multiple subsections. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`
-      : `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}".${requiredBlock}\n\nIMPORTANT: The document must be approximately ${targetPages} pages. For ${targetPages} pages, plan at least ${Math.max(8, Math.ceil(targetPages / 15))} major sections, each with multiple subsections. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`;
+      ? `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}" based on these user-provided guidelines:\n${tableOfContents}\n${requiredBlock}\n\nNON-NEGOTIABLE SIZE PLAN: the final document must contain ${targetPages} pages of core content, accepted range ${minPages}-${maxPages}. Generate a structure large enough to authentically sustain that volume: at least ${minMajorSections} major chapters/entries, each with dense subsections and sub-subsections. Cover the whole conceptual map of the topic: definitions, history, theory, mechanisms, architectures, methodologies, tools, case studies, limits, debates, standards, current research, practice, failures, and future directions. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`
+      : `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}".${requiredBlock}\n\nNON-NEGOTIABLE SIZE PLAN: the final document must contain ${targetPages} pages of core content, accepted range ${minPages}-${maxPages}. Generate a structure large enough to authentically sustain that volume: at least ${minMajorSections} major chapters/entries, each with dense subsections and sub-subsections. Cover the whole conceptual map of the topic: definitions, history, theory, mechanisms, architectures, methodologies, tools, case studies, limits, debates, standards, current research, practice, failures, and future directions. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`;
 
     toc = await callAI({
       action: "generate_toc",
       messages: [{ role: "user", content: tocPrompt }],
       systemPrompt,
+      maxTokens: 12000,
+      temperature: 0.35,
     });
 
     onProgress(10, isFr ? "Structure créée" : "Structure created", { toc });
