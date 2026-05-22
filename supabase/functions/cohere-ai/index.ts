@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { action, messages, systemPrompt } = await req.json();
+    const { action, messages, systemPrompt, maxTokens, temperature } = await req.json();
 
     if (!action || !messages) {
       return new Response(
@@ -43,7 +43,12 @@ serve(async (req) => {
           const response = await fetch("https://api.cohere.com/v2/chat", {
             method: "POST",
             headers: { Authorization: `Bearer ${COHERE_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ model: "command-a-03-2025", messages: chatMessages }),
+            body: JSON.stringify({
+              model: "command-a-03-2025",
+              messages: chatMessages,
+              max_tokens: Math.min(Math.max(Number(maxTokens) || 8192, 1024), 16000),
+              temperature: typeof temperature === "number" ? temperature : 0.55,
+            }),
             signal: controller.signal,
           });
           clearTimeout(timeout);
@@ -82,7 +87,12 @@ serve(async (req) => {
           const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
             method: "POST",
             headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ model: "google/gemini-2.5-pro", messages: chatMessages }),
+            body: JSON.stringify({
+              model: "google/gemini-2.5-pro",
+              messages: chatMessages,
+              max_tokens: Math.min(Math.max(Number(maxTokens) || 8192, 1024), 32000),
+              temperature: typeof temperature === "number" ? temperature : 0.55,
+            }),
             signal: controller.signal,
           });
           clearTimeout(timeout);
