@@ -4,6 +4,8 @@ interface AIRequest {
   action: string;
   messages: { role: string; content: string }[];
   systemPrompt?: string;
+  maxTokens?: number;
+  temperature?: number;
 }
 
 async function callAIOnce(request: AIRequest): Promise<string> {
@@ -647,6 +649,27 @@ INAPPROPRIATE: [brief reason]`,
   }
 }
 
+function getInstallmentFocus(cycle: number, cycleCount: number, isFr: boolean): string {
+  const fr = [
+    "fondements, définitions rigoureuses, vocabulaire technique et périmètre conceptuel",
+    "évolution historique, auteurs majeurs, jalons, normes, écoles de pensée et controverses",
+    "mécanismes internes, architecture, modèles, taxonomies, classifications et chaînes causales",
+    "méthodes, pratiques professionnelles, procédures, outils, standards et critères de décision",
+    "études de cas approfondies, exemples réels, contre-exemples, échecs, limites et risques",
+    "comparaisons, débats experts, implications interdisciplinaires, état de l'art et perspectives futures",
+  ];
+  const en = [
+    "foundations, rigorous definitions, technical vocabulary and conceptual scope",
+    "historical evolution, major authors, milestones, standards, schools of thought and controversies",
+    "internal mechanisms, architecture, models, taxonomies, classifications and causal chains",
+    "methods, professional practice, procedures, tools, standards and decision criteria",
+    "deep case studies, real examples, counter-examples, failures, limits and risks",
+    "comparisons, expert debates, interdisciplinary implications, state of the art and future directions",
+  ];
+  const items = isFr ? fr : en;
+  return items[cycle % items.length] + (cycle >= items.length ? (isFr ? ` — approfondissement supplémentaire ${cycle + 1}/${cycleCount}` : ` — additional deepening ${cycle + 1}/${cycleCount}`) : "");
+}
+
 export async function generateDocumentChunked(
   topic: string, level: string, format: string, depth: string,
   pages: number | null, language: string, tableOfContents: string,
@@ -658,6 +681,12 @@ export async function generateDocumentChunked(
   const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent, requiredThemes);
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
+  const tolerancePct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
+  const minPages = Math.floor(targetPages * (1 - tolerancePct / 100));
+  const maxPages = Math.ceil(targetPages * (1 + tolerancePct / 100));
+  const maxPagesPerCall = format === "encyclopedie" ? 6 : format === "livre" ? 5 : 3;
+  const maxOutputTokens = format === "encyclopedie" || format === "livre" ? 16000 : 12000;
+  const targetWritingUnits = Math.max(1, Math.ceil(targetPages / maxPagesPerCall));
 
   let toc: string;
   if (resumeFrom?.toc) {
@@ -677,41 +706,32 @@ export async function generateDocumentChunked(
         }).join("\n");
     }
 
+    const minMajorSections = Math.max(8, Math.ceil(targetPages / 12));
     const tocPrompt = tableOfContents
-      ? `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}" based on these user-provided guidelines:\n${tableOfContents}\n${requiredBlock}\n\nIMPORTANT: The document must be approximately ${targetPages} pages. Generate enough major parts, chapters, sections and subsections to fill this length authentically. For ${targetPages} pages, plan at least ${Math.max(8, Math.ceil(targetPages / 15))} major sections, each with multiple subsections. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`
-      : `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}".${requiredBlock}\n\nIMPORTANT: The document must be approximately ${targetPages} pages. For ${targetPages} pages, plan at least ${Math.max(8, Math.ceil(targetPages / 15))} major sections, each with multiple subsections. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`;
+      ? `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}" based on these user-provided guidelines:\n${tableOfContents}\n${requiredBlock}\n\nNON-NEGOTIABLE SIZE PLAN: the final document must contain ${targetPages} pages of core content, accepted range ${minPages}-${maxPages}. Generate a structure large enough to authentically sustain that volume: at least ${minMajorSections} major chapters/entries and at least ${targetWritingUnits} numbered writing units/subsections in total. Each writing unit must be specific enough to sustain ${maxPagesPerCall} dense pages. Cover the whole conceptual map of the topic: definitions, history, theory, mechanisms, architectures, methodologies, tools, case studies, limits, debates, standards, current research, practice, failures, and future directions. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`
+      : `Generate a HIGHLY DETAILED, hierarchical table of contents for a document about "${topic}".${requiredBlock}\n\nNON-NEGOTIABLE SIZE PLAN: the final document must contain ${targetPages} pages of core content, accepted range ${minPages}-${maxPages}. Generate a structure large enough to authentically sustain that volume: at least ${minMajorSections} major chapters/entries and at least ${targetWritingUnits} numbered writing units/subsections in total. Each writing unit must be specific enough to sustain ${maxPagesPerCall} dense pages. Cover the whole conceptual map of the topic: definitions, history, theory, mechanisms, architectures, methodologies, tools, case studies, limits, debates, standards, current research, practice, failures, and future directions. List ONLY the table of contents, one entry per line, with hierarchical numbering (1, 1.1, 1.1.1, ...).`;
 
     toc = await callAI({
       action: "generate_toc",
       messages: [{ role: "user", content: tocPrompt }],
       systemPrompt,
+      maxTokens: 12000,
+      temperature: 0.35,
     });
 
     onProgress(10, isFr ? "Structure créée" : "Structure created", { toc });
   }
 
-  const tocLines = toc.split("\n").filter((l) => l.trim().length > 0);
-  const majorSections: string[] = [];
-  let currentGroup: string[] = [];
-
-  for (const line of tocLines) {
-    const trimmed = line.trim();
-    const isMajor = /^(\d+[\.\)]|#{1,2}\s|[IVXLC]+[\.\)])/.test(trimmed) && !/^(\d+\.\d+|#{3,})/.test(trimmed);
-    if (isMajor && currentGroup.length > 0) {
-      majorSections.push(currentGroup.join("\n"));
-      currentGroup = [trimmed];
-    } else {
-      currentGroup.push(trimmed);
-    }
-  }
-  if (currentGroup.length > 0) majorSections.push(currentGroup.join("\n"));
-
-  const sections = majorSections.length >= 2 ? majorSections : tocLines.reduce<string[][]>((acc, line, i) => {
-    const chunkIdx = Math.floor(i / Math.max(1, Math.ceil(tocLines.length / 5)));
-    if (!acc[chunkIdx]) acc[chunkIdx] = [];
-    acc[chunkIdx].push(line);
-    return acc;
-  }, []).map(group => group.join("\n"));
+  const tocLines = toc.split("\n").map((l) => l.trim()).filter(Boolean);
+  const sourceUnits = tocLines.length > 0 ? tocLines : [topic];
+  const targetUnits = Math.max(sourceUnits.length, targetWritingUnits);
+  const sections = Array.from({ length: targetUnits }, (_, idx) => {
+    const tocLine = sourceUnits[idx % sourceUnits.length];
+    const cycle = Math.floor(idx / sourceUnits.length);
+    const cycleCount = Math.ceil(targetUnits / sourceUnits.length);
+    const focus = getInstallmentFocus(cycle, cycleCount, isFr);
+    return `${tocLine}\n${isFr ? "Angle d'approfondissement" : "Deepening angle"} ${cycle + 1}/${cycleCount}: ${focus}`;
+  });
 
   const totalSections = sections.length;
   let fullContent = resumeFrom?.content || "";
@@ -728,9 +748,19 @@ export async function generateDocumentChunked(
       { toc, content: fullContent, sectionIdx: i, totalSections }
     );
 
-    const pagesPerSection = Math.max(3, Math.round(targetPages / totalSections));
+    const pagesPerSection = Math.max(1, Math.ceil(targetPages / totalSections));
     const wordsPerSection = pagesPerSection * 500;
-    const commonRules = `\n\nABSOLUTE REQUIREMENTS for this section:\n- Reach approximately ${wordsPerSection} words (≈ ${pagesPerSection} pages of dense prose). NEVER fall short.\n- Headings will be CENTERED and body paragraphs JUSTIFIED on render — write balanced heading wording and full, well-built paragraphs.\n- Mobilise your knowledge of online and published scholarly sources even if no reference PDFs were attached: cite specific authors, works, dates, and accessible URLs/DOIs where appropriate.\n- Do NOT write a preface, foreword, bibliography, glossary, index, or appendix here unless this section's title explicitly is one — those are handled separately and DO NOT count toward the page target.\n- Use proper markdown heading levels matching the TOC entry numbering. Never be brief or superficial.`;
+    const commonRules = `
+
+ABSOLUTE REQUIREMENTS for this section:
+- This writing unit is part ${i + 1}/${totalSections} of a strict ${targetPages}-page document. It MUST contribute about ${pagesPerSection} full pages (≈ ${wordsPerSection} words) of CORE CONTENT.
+- Write long, expert-level analytical prose. If the topic is technical, include internals, trade-offs, implementation details, standards, failure modes, design choices, and concrete professional examples.
+- Exhaustiveness is mandatory: do not merely define the concept; cover causes, mechanisms, variants, taxonomy, historical evolution, current state of the art, edge cases, limits, critiques, comparisons, applications, and consequences.
+- Avoid summaries. Do not compress. Prefer complete paragraphs that develop one idea deeply before moving to the next.
+- Headings will be CENTERED and body paragraphs JUSTIFIED on render — write balanced heading wording and full, well-built paragraphs.
+- Mobilise your knowledge of online and published scholarly sources even if no reference PDFs were attached: cite specific authors, works, dates, and accessible URLs/DOIs where appropriate.
+- Do NOT write a preface, foreword, bibliography, glossary, index, or appendix here unless this section's title explicitly is one — those are handled separately and DO NOT count toward the page target.
+- Use proper markdown heading levels matching the TOC entry numbering. Never be brief or superficial.`;
 
     const sectionPrompt = i === 0
       ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}.${commonRules}`
@@ -741,6 +771,8 @@ export async function generateDocumentChunked(
         action: "generate_section",
         messages: [{ role: "user", content: sectionPrompt }],
         systemPrompt,
+        maxTokens: maxOutputTokens,
+        temperature: 0.5,
       });
       fullContent += (fullContent.length > 0 ? "\n\n" : "") + sectionContent;
       // Save after each section to enable resume
@@ -753,6 +785,8 @@ export async function generateDocumentChunked(
           action: "generate_section_retry",
           messages: [{ role: "user", content: simplePrompt }],
           systemPrompt,
+          maxTokens: maxOutputTokens,
+          temperature: 0.45,
         });
         fullContent += (fullContent.length > 0 ? "\n\n" : "") + fallbackContent;
       } catch (retryErr) {
@@ -774,11 +808,6 @@ export async function generateDocumentChunked(
     }
   }
 
-  // Enforce the page-count contract: if the produced core content is below the
-  // lower bound of the tolerance window, run up to 3 expansion passes that
-  // deepen existing sections (no new top-level chapters — keeps structure clean).
-  const pct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
-  const minPages = Math.floor(targetPages * (1 - pct / 100));
   let currentPages = estimatePageCount(fullContent);
   let expansionPass = 0;
   while (currentPages < minPages && expansionPass < 3) {
@@ -798,6 +827,8 @@ export async function generateDocumentChunked(
         action: "expand_document",
         messages: [{ role: "user", content: expansionPrompt }],
         systemPrompt,
+        maxTokens: maxOutputTokens,
+        temperature: 0.45,
       });
       if (extra && extra.trim().length > 0) {
         fullContent += "\n\n" + extra.trim();
