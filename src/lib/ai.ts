@@ -4,6 +4,8 @@ interface AIRequest {
   action: string;
   messages: { role: string; content: string }[];
   systemPrompt?: string;
+  maxTokens?: number;
+  temperature?: number;
 }
 
 async function callAIOnce(request: AIRequest): Promise<string> {
