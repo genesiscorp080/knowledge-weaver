@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Upload, X, Library, ListPlus, Trash2 } from "lucide-react";
+import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Upload, X, Library, ListPlus, Trash2, Link as LinkIcon, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useGeneration } from "@/contexts/GenerationContext";
 import { extractPdfText } from "@/lib/pdfUtils";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import type { RequiredTheme } from "@/lib/ai";
 
 const levels = [
@@ -82,7 +83,9 @@ const HomePage = () => {
   const [tableOfContents, setTableOfContents] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [levelOpen, setLevelOpen] = useState(false);
-  const [referenceFiles, setReferenceFiles] = useState<{ name: string; content: string }[]>([]);
+  const [referenceFiles, setReferenceFiles] = useState<{ name: string; content: string; source?: "pdf" | "url" }[]>([]);
+  const [urlInput, setUrlInput] = useState("");
+  const [fetchingUrl, setFetchingUrl] = useState(false);
   const [requiredThemes, setRequiredThemes] = useState<RequiredTheme[]>([]);
   const refFileRef = useRef<HTMLInputElement>(null);
   const isFr = language === "fr";
@@ -120,6 +123,47 @@ const HomePage = () => {
       }
     }
     if (refFileRef.current) refFileRef.current.value = "";
+  };
+
+  const handleAddUrl = async () => {
+    const url = urlInput.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) {
+      toast.error(isFr ? "URL invalide (doit commencer par http:// ou https://)" : "Invalid URL (must start with http:// or https://)");
+      return;
+    }
+    if (referenceFiles.length >= refCap) {
+      toast.error(isFr ? `Maximum ${refCap} références` : `Maximum ${refCap} references`);
+      return;
+    }
+    setFetchingUrl(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("fetch-reference", { body: { url } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      let text = "";
+      const name = url.length > 80 ? url.slice(0, 77) + "..." : url;
+      if (data?.kind === "pdf" && data?.base64) {
+        const bin = atob(data.base64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const file = new File([bytes], name.endsWith(".pdf") ? name : `${name}.pdf`, { type: "application/pdf" });
+        const { text: pdfText } = await extractPdfText(file);
+        text = pdfText;
+      } else if (data?.kind === "text") {
+        text = data.text || "";
+      } else {
+        throw new Error(isFr ? "Contenu introuvable" : "No content");
+      }
+      if (!text.trim()) throw new Error(isFr ? "Aucun texte extrait" : "No text extracted");
+      setReferenceFiles(prev => [...prev, { name, content: text, source: "url" }]);
+      setUrlInput("");
+      toast.success(isFr ? "Lien ajouté" : "Link added");
+    } catch (err: any) {
+      toast.error(`${isFr ? "Échec du lien" : "Link failed"}: ${err?.message || "?"}`);
+    } finally {
+      setFetchingUrl(false);
+    }
   };
 
   const addTheme = () => {
