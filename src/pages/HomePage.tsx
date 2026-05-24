@@ -357,13 +357,37 @@ const HomePage = () => {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
           <input ref={refFileRef} type="file" accept=".pdf" multiple onChange={handleAddReference} className="hidden" />
           <button onClick={() => refFileRef.current?.click()} className="text-xs font-semibold text-primary flex items-center gap-1">
-            <Upload size={12} /> {isFr ? `Ajouter des documents de référence (1-${refCap} PDF)` : `Add reference documents (1-${refCap} PDFs)`}
+            <Upload size={12} /> {isFr ? `Ajouter des références — PDF ou liens (1-${refCap})` : `Add references — PDF or links (1-${refCap})`}
           </button>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="relative flex-1">
+              <LinkIcon size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="url"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddUrl(); } }}
+                placeholder={isFr ? "https:// page web, PDF en ligne, etc." : "https:// web page, online PDF, etc."}
+                className="input-field w-full pl-8 text-xs py-2"
+                disabled={fetchingUrl}
+              />
+            </div>
+            <button
+              onClick={handleAddUrl}
+              disabled={fetchingUrl || !urlInput.trim()}
+              className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center gap-1"
+            >
+              {fetchingUrl ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              {isFr ? "Ajouter" : "Add"}
+            </button>
+          </div>
           {referenceFiles.length > 0 && (
             <div className="mt-2 space-y-1.5">
               {referenceFiles.map((f, i) => (
                 <div key={i} className="flex items-center gap-2 bg-secondary/60 rounded-lg px-3 py-2">
-                  <FileText size={12} className="text-primary shrink-0" />
+                  {f.source === "url"
+                    ? <LinkIcon size={12} className="text-primary shrink-0" />
+                    : <FileText size={12} className="text-primary shrink-0" />}
                   <span className="text-xs truncate flex-1">{f.name}</span>
                   <button onClick={() => setReferenceFiles(prev => prev.filter((_, idx) => idx !== i))}>
                     <X size={12} className="text-muted-foreground" />
