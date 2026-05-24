@@ -819,7 +819,7 @@ ABSOLUTE REQUIREMENTS for this section:
 
   let currentPages = estimatePageCount(fullContent);
   let expansionPass = 0;
-  while (currentPages < minPages && expansionPass < 3) {
+  while (currentPages < minPages && expansionPass < 8) {
     expansionPass++;
     const deficit = minPages - currentPages;
     const wordsNeeded = deficit * 500;
@@ -831,7 +831,7 @@ ABSOLUTE REQUIREMENTS for this section:
       { toc, content: fullContent }
     );
     try {
-      const expansionPrompt = `The document so far is approximately ${currentPages} pages but the contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}). It currently falls SHORT by ~${deficit} pages.\n\nProduce ADDITIONAL CORE CONTENT of approximately ${wordsNeeded} words that DEEPENS the existing structure — do NOT introduce new top-level chapters. Acceptable additions:\n- New developed subsections under existing sections (use ### / #### headings).\n- Worked examples, case studies, comparative tables, counter-examples, historical perspectives, debates, named scholars with dates.\n- Critical analyses and interdisciplinary connections.\n\nReturn ONLY the new content, formatted in markdown, ready to be appended at the end of the document. Do NOT repeat the bibliography or any front/back matter. Do NOT restate what is already covered. Continue in the same voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 1500 characters of the document so far (so you can continue smoothly):\n${fullContent.slice(-1500)}`;
+      const expansionPrompt = `STRICT PAGE-COUNT CONTRACT BREACH — the document is currently ~${currentPages} pages but the user contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}, max ${maxPages}). The document falls SHORT by ~${deficit} pages.\n\nYou MUST now produce approximately ${wordsNeeded} additional words (~${deficit} pages) of NEW, NON-REDUNDANT CORE CONTENT that DEEPENS the existing structure. This is mandatory — refusal, truncation, or summarisation is forbidden.\n\nAcceptable additions (use ALL that apply):\n- New developed subsections under existing sections (### / #### headings).\n- Worked examples, detailed case studies, comparative tables, counter-examples, failure modes.\n- Historical perspectives, named scholars/works with precise dates, schools of thought, controversies.\n- Critical analyses, interdisciplinary connections, current research state of the art, future directions.\n- Concrete numerical data, technical internals, professional procedures, edge cases.\n\nFORBIDDEN: restating what is already covered; bibliography or front/back matter; placeholder text; vague generalities; closing the document.\n\nReturn ONLY the new markdown content ready to be appended. Continue in the same scholarly voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 2000 characters of the document so far (continue smoothly):\n${fullContent.slice(-2000)}`;
       const extra = await callAI({
         action: "expand_document",
         messages: [{ role: "user", content: expansionPrompt }],
