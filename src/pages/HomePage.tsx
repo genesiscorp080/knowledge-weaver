@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Upload, X, Library, ListPlus, Trash2 } from "lucide-react";
+import { Sparkles, ChevronDown, FileText, BookOpen, GraduationCap, BookMarked, Plus, Minus, Upload, X, Library, ListPlus, Trash2, Link as LinkIcon, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useGeneration } from "@/contexts/GenerationContext";
 import { extractPdfText } from "@/lib/pdfUtils";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import type { RequiredTheme } from "@/lib/ai";
 
 const levels = [
@@ -82,7 +83,9 @@ const HomePage = () => {
   const [tableOfContents, setTableOfContents] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [levelOpen, setLevelOpen] = useState(false);
-  const [referenceFiles, setReferenceFiles] = useState<{ name: string; content: string }[]>([]);
+  const [referenceFiles, setReferenceFiles] = useState<{ name: string; content: string; source?: "pdf" | "url" }[]>([]);
+  const [urlInput, setUrlInput] = useState("");
+  const [fetchingUrl, setFetchingUrl] = useState(false);
   const [requiredThemes, setRequiredThemes] = useState<RequiredTheme[]>([]);
   const refFileRef = useRef<HTMLInputElement>(null);
   const isFr = language === "fr";
@@ -120,6 +123,47 @@ const HomePage = () => {
       }
     }
     if (refFileRef.current) refFileRef.current.value = "";
+  };
+
+  const handleAddUrl = async () => {
+    const url = urlInput.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) {
+      toast.error(isFr ? "URL invalide (doit commencer par http:// ou https://)" : "Invalid URL (must start with http:// or https://)");
+      return;
+    }
+    if (referenceFiles.length >= refCap) {
+      toast.error(isFr ? `Maximum ${refCap} références` : `Maximum ${refCap} references`);
+      return;
+    }
+    setFetchingUrl(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("fetch-reference", { body: { url } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      let text = "";
+      const name = url.length > 80 ? url.slice(0, 77) + "..." : url;
+      if (data?.kind === "pdf" && data?.base64) {
+        const bin = atob(data.base64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const file = new File([bytes], name.endsWith(".pdf") ? name : `${name}.pdf`, { type: "application/pdf" });
+        const { text: pdfText } = await extractPdfText(file);
+        text = pdfText;
+      } else if (data?.kind === "text") {
+        text = data.text || "";
+      } else {
+        throw new Error(isFr ? "Contenu introuvable" : "No content");
+      }
+      if (!text.trim()) throw new Error(isFr ? "Aucun texte extrait" : "No text extracted");
+      setReferenceFiles(prev => [...prev, { name, content: text, source: "url" }]);
+      setUrlInput("");
+      toast.success(isFr ? "Lien ajouté" : "Link added");
+    } catch (err: any) {
+      toast.error(`${isFr ? "Échec du lien" : "Link failed"}: ${err?.message || "?"}`);
+    } finally {
+      setFetchingUrl(false);
+    }
   };
 
   const addTheme = () => {
@@ -313,13 +357,37 @@ const HomePage = () => {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
           <input ref={refFileRef} type="file" accept=".pdf" multiple onChange={handleAddReference} className="hidden" />
           <button onClick={() => refFileRef.current?.click()} className="text-xs font-semibold text-primary flex items-center gap-1">
-            <Upload size={12} /> {isFr ? `Ajouter des documents de référence (1-${refCap} PDF)` : `Add reference documents (1-${refCap} PDFs)`}
+            <Upload size={12} /> {isFr ? `Ajouter des références — PDF ou liens (1-${refCap})` : `Add references — PDF or links (1-${refCap})`}
           </button>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="relative flex-1">
+              <LinkIcon size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="url"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddUrl(); } }}
+                placeholder={isFr ? "https:// page web, PDF en ligne, etc." : "https:// web page, online PDF, etc."}
+                className="input-field w-full pl-8 text-xs py-2"
+                disabled={fetchingUrl}
+              />
+            </div>
+            <button
+              onClick={handleAddUrl}
+              disabled={fetchingUrl || !urlInput.trim()}
+              className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center gap-1"
+            >
+              {fetchingUrl ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              {isFr ? "Ajouter" : "Add"}
+            </button>
+          </div>
           {referenceFiles.length > 0 && (
             <div className="mt-2 space-y-1.5">
               {referenceFiles.map((f, i) => (
                 <div key={i} className="flex items-center gap-2 bg-secondary/60 rounded-lg px-3 py-2">
-                  <FileText size={12} className="text-primary shrink-0" />
+                  {f.source === "url"
+                    ? <LinkIcon size={12} className="text-primary shrink-0" />
+                    : <FileText size={12} className="text-primary shrink-0" />}
                   <span className="text-xs truncate flex-1">{f.name}</span>
                   <button onClick={() => setReferenceFiles(prev => prev.filter((_, idx) => idx !== i))}>
                     <X size={12} className="text-muted-foreground" />
