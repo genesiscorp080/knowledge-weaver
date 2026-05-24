@@ -681,9 +681,10 @@ export async function generateDocumentChunked(
   onProgress: (progress: number, step: string, partial: { toc?: string; content?: string; sectionIdx?: number; totalSections?: number }) => void,
   referenceContent?: string,
   resumeFrom?: { toc: string; content: string; nextSectionIdx: number },
-  requiredThemes?: RequiredTheme[]
+  requiredThemes?: RequiredTheme[],
+  description?: string,
 ): Promise<{ toc: string; content: string }> {
-  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent, requiredThemes);
+  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent, requiredThemes, description);
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
   const tolerancePct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
@@ -701,6 +702,9 @@ export async function generateDocumentChunked(
     onProgress(5, isFr ? `Analyse et structuration : ${topic.slice(0, 50)}...` : `Analyzing and structuring: ${topic.slice(0, 50)}...`, {});
 
     let requiredBlock = "";
+    if (description && description.trim()) {
+      requiredBlock += `\n\nUSER EDITORIAL BRIEF (MANDATORY) — every point listed here must be reflected in the TOC and developed in the document:\n${description.trim()}`;
+    }
     if (requiredThemes && requiredThemes.length > 0) {
       requiredBlock = `\n\nREQUIRED THEMES — these MUST appear as developed parts of the table of contents (they are not the document subject; they are mandatory coverage areas). Integrate them organically wherever they fit best:\n` +
         requiredThemes.map((t, i) => {
