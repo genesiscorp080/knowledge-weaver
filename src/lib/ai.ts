@@ -49,7 +49,8 @@ export async function callAI(request: AIRequest, maxRetries = 3): Promise<string
 export function buildGenerateSystemPrompt(
   level: string, format: string, depth: string,
   pages: number | null, language: string, referenceContent?: string,
-  requiredThemes?: RequiredTheme[]
+  requiredThemes?: RequiredTheme[],
+  description?: string,
 ): string {
   const lang = language === "en" ? "English" : "French";
   const targetPages = pages || getDefaultPages(format, depth);
@@ -126,6 +127,10 @@ IMPORTANT — pages excluded from the page count: preface, foreword ("avant-prop
   if (referenceContent) {
     const cap = format === "encyclopedie" ? 60000 : format === "livre" ? 30000 : 15000;
     prompt += `\n\n═══════════════════════════════════════════\nREFERENCE DOCUMENTS (use to enrich, cite, and ground content)\n═══════════════════════════════════════════\n${referenceContent.slice(0, cap)}`;
+  }
+
+  if (description && description.trim()) {
+    prompt += `\n\n═══════════════════════════════════════════\nUSER DESCRIPTION — MANDATORY EDITORIAL BRIEF\n═══════════════════════════════════════════\nThe user has provided the following written description of what this document MUST contain and what is expected of it. Treat it as a CONTRACTUAL editorial brief: every point raised MUST be reflected, respected and substantively developed in the final document, while staying coherent with the chosen format, level and depth.\n\n${description.trim()}`;
   }
 
   return prompt;
