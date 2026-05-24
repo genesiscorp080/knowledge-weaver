@@ -222,6 +222,21 @@ const HomePage = () => {
           <textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={t("home.topicPlaceholder")} className="input-field w-full min-h-[100px] py-3 resize-none" />
         </motion.div>
 
+        {/* Description (optional) */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.07 }}>
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
+            {isFr ? "Description (facultatif)" : "Description (optional)"}
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={isFr
+              ? "Décrivez ce que le document doit contenir, l'angle souhaité, les attentes particulières, le public visé, les points à absolument traiter…"
+              : "Describe what the document must contain, the angle, expectations, audience, points that absolutely must be covered…"}
+            className="input-field w-full min-h-[90px] py-3 resize-none"
+          />
+        </motion.div>
+
         {/* Level */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">{t("home.level")}</label>
