@@ -16,6 +16,7 @@ export interface GenerationJob {
   tableOfContents: string;
   referenceContent?: string;
   requiredThemes?: RequiredTheme[];
+  description?: string;
   status: "queued" | "moderating" | "generating" | "paused" | "completed" | "failed";
   progress: number;
   currentStep: string;
@@ -157,7 +158,8 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
         },
         job.referenceContent,
         resumeState,
-        job.requiredThemes
+        job.requiredThemes,
+        job.description,
       );
 
       // Clear resume state on success
