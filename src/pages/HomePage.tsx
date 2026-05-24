@@ -73,6 +73,7 @@ const HomePage = () => {
   const { addJob, hasActiveGenerations } = useGeneration();
   const navigate = useNavigate();
   const [topic, setTopic] = useState("");
+  const [description, setDescription] = useState("");
   const [level, setLevel] = useState("");
   const [format, setFormat] = useState("");
   const [depth, setDepth] = useState("intermediaire");
@@ -193,11 +194,13 @@ const HomePage = () => {
       tableOfContents,
       referenceContent: refContent,
       requiredThemes: cleanedThemes && cleanedThemes.length > 0 ? cleanedThemes : undefined,
+      description: description.trim() || undefined,
     });
 
     if (jobId) {
       toast.success(isFr ? "Vérification du sujet en cours..." : "Checking topic...");
       setTopic("");
+      setDescription("");
       setRequiredThemes([]);
     }
   };
