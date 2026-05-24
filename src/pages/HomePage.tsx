@@ -73,6 +73,7 @@ const HomePage = () => {
   const { addJob, hasActiveGenerations } = useGeneration();
   const navigate = useNavigate();
   const [topic, setTopic] = useState("");
+  const [description, setDescription] = useState("");
   const [level, setLevel] = useState("");
   const [format, setFormat] = useState("");
   const [depth, setDepth] = useState("intermediaire");
@@ -193,11 +194,13 @@ const HomePage = () => {
       tableOfContents,
       referenceContent: refContent,
       requiredThemes: cleanedThemes && cleanedThemes.length > 0 ? cleanedThemes : undefined,
+      description: description.trim() || undefined,
     });
 
     if (jobId) {
       toast.success(isFr ? "Vérification du sujet en cours..." : "Checking topic...");
       setTopic("");
+      setDescription("");
       setRequiredThemes([]);
     }
   };
@@ -217,6 +220,21 @@ const HomePage = () => {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">{t("home.topic")}</label>
           <textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={t("home.topicPlaceholder")} className="input-field w-full min-h-[100px] py-3 resize-none" />
+        </motion.div>
+
+        {/* Description (optional) */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.07 }}>
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
+            {isFr ? "Description (facultatif)" : "Description (optional)"}
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={isFr
+              ? "Décrivez ce que le document doit contenir, l'angle souhaité, les attentes particulières, le public visé, les points à absolument traiter…"
+              : "Describe what the document must contain, the angle, expectations, audience, points that absolutely must be covered…"}
+            className="input-field w-full min-h-[90px] py-3 resize-none"
+          />
         </motion.div>
 
         {/* Level */}

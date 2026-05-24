@@ -49,7 +49,8 @@ export async function callAI(request: AIRequest, maxRetries = 3): Promise<string
 export function buildGenerateSystemPrompt(
   level: string, format: string, depth: string,
   pages: number | null, language: string, referenceContent?: string,
-  requiredThemes?: RequiredTheme[]
+  requiredThemes?: RequiredTheme[],
+  description?: string,
 ): string {
   const lang = language === "en" ? "English" : "French";
   const targetPages = pages || getDefaultPages(format, depth);
@@ -126,6 +127,10 @@ IMPORTANT — pages excluded from the page count: preface, foreword ("avant-prop
   if (referenceContent) {
     const cap = format === "encyclopedie" ? 60000 : format === "livre" ? 30000 : 15000;
     prompt += `\n\n═══════════════════════════════════════════\nREFERENCE DOCUMENTS (use to enrich, cite, and ground content)\n═══════════════════════════════════════════\n${referenceContent.slice(0, cap)}`;
+  }
+
+  if (description && description.trim()) {
+    prompt += `\n\n═══════════════════════════════════════════\nUSER DESCRIPTION — MANDATORY EDITORIAL BRIEF\n═══════════════════════════════════════════\nThe user has provided the following written description of what this document MUST contain and what is expected of it. Treat it as a CONTRACTUAL editorial brief: every point raised MUST be reflected, respected and substantively developed in the final document, while staying coherent with the chosen format, level and depth.\n\n${description.trim()}`;
   }
 
   return prompt;
@@ -676,9 +681,10 @@ export async function generateDocumentChunked(
   onProgress: (progress: number, step: string, partial: { toc?: string; content?: string; sectionIdx?: number; totalSections?: number }) => void,
   referenceContent?: string,
   resumeFrom?: { toc: string; content: string; nextSectionIdx: number },
-  requiredThemes?: RequiredTheme[]
+  requiredThemes?: RequiredTheme[],
+  description?: string,
 ): Promise<{ toc: string; content: string }> {
-  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent, requiredThemes);
+  const systemPrompt = buildGenerateSystemPrompt(level, format, depth, pages, language, referenceContent, requiredThemes, description);
   const targetPages = pages || getDefaultPages(format, depth);
   const isFr = language === "fr";
   const tolerancePct = targetPages <= 300 ? 5 : targetPages <= 700 ? 8 : 10;
@@ -696,6 +702,9 @@ export async function generateDocumentChunked(
     onProgress(5, isFr ? `Analyse et structuration : ${topic.slice(0, 50)}...` : `Analyzing and structuring: ${topic.slice(0, 50)}...`, {});
 
     let requiredBlock = "";
+    if (description && description.trim()) {
+      requiredBlock += `\n\nUSER EDITORIAL BRIEF (MANDATORY) — every point listed here must be reflected in the TOC and developed in the document:\n${description.trim()}`;
+    }
     if (requiredThemes && requiredThemes.length > 0) {
       requiredBlock = `\n\nREQUIRED THEMES — these MUST appear as developed parts of the table of contents (they are not the document subject; they are mandatory coverage areas). Integrate them organically wherever they fit best:\n` +
         requiredThemes.map((t, i) => {
@@ -810,7 +819,7 @@ ABSOLUTE REQUIREMENTS for this section:
 
   let currentPages = estimatePageCount(fullContent);
   let expansionPass = 0;
-  while (currentPages < minPages && expansionPass < 3) {
+  while (currentPages < minPages && expansionPass < 8) {
     expansionPass++;
     const deficit = minPages - currentPages;
     const wordsNeeded = deficit * 500;
@@ -822,7 +831,7 @@ ABSOLUTE REQUIREMENTS for this section:
       { toc, content: fullContent }
     );
     try {
-      const expansionPrompt = `The document so far is approximately ${currentPages} pages but the contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}). It currently falls SHORT by ~${deficit} pages.\n\nProduce ADDITIONAL CORE CONTENT of approximately ${wordsNeeded} words that DEEPENS the existing structure — do NOT introduce new top-level chapters. Acceptable additions:\n- New developed subsections under existing sections (use ### / #### headings).\n- Worked examples, case studies, comparative tables, counter-examples, historical perspectives, debates, named scholars with dates.\n- Critical analyses and interdisciplinary connections.\n\nReturn ONLY the new content, formatted in markdown, ready to be appended at the end of the document. Do NOT repeat the bibliography or any front/back matter. Do NOT restate what is already covered. Continue in the same voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 1500 characters of the document so far (so you can continue smoothly):\n${fullContent.slice(-1500)}`;
+      const expansionPrompt = `STRICT PAGE-COUNT CONTRACT BREACH — the document is currently ~${currentPages} pages but the user contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}, max ${maxPages}). The document falls SHORT by ~${deficit} pages.\n\nYou MUST now produce approximately ${wordsNeeded} additional words (~${deficit} pages) of NEW, NON-REDUNDANT CORE CONTENT that DEEPENS the existing structure. This is mandatory — refusal, truncation, or summarisation is forbidden.\n\nAcceptable additions (use ALL that apply):\n- New developed subsections under existing sections (### / #### headings).\n- Worked examples, detailed case studies, comparative tables, counter-examples, failure modes.\n- Historical perspectives, named scholars/works with precise dates, schools of thought, controversies.\n- Critical analyses, interdisciplinary connections, current research state of the art, future directions.\n- Concrete numerical data, technical internals, professional procedures, edge cases.\n\nFORBIDDEN: restating what is already covered; bibliography or front/back matter; placeholder text; vague generalities; closing the document.\n\nReturn ONLY the new markdown content ready to be appended. Continue in the same scholarly voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 2000 characters of the document so far (continue smoothly):\n${fullContent.slice(-2000)}`;
       const extra = await callAI({
         action: "expand_document",
         messages: [{ role: "user", content: expansionPrompt }],
