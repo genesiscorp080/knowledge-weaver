@@ -46,7 +46,11 @@ serve(async (req) => {
             body: JSON.stringify({
               model: "command-a-03-2025",
               messages: chatMessages,
-              max_tokens: Math.min(Math.max(Number(maxTokens) || 8192, 1024), 16000),
+              // Cohere Command models currently reject values above 8192.
+              // The client may request larger outputs for long documents, but the
+              // document generator already splits work into chunks; exceeding this
+              // cap makes the whole generation fail with a 400 before fallback can help.
+              max_tokens: Math.min(Math.max(Number(maxTokens) || 8192, 1024), 8192),
               temperature: typeof temperature === "number" ? temperature : 0.55,
             }),
             signal: controller.signal,
