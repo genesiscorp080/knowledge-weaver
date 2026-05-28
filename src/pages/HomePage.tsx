@@ -70,7 +70,7 @@ const depthFormatRestrictions: Record<string, string[]> = {
 
 const HomePage = () => {
   const { t, language } = useLanguage();
-  const { canGenerate, canAccessEncyclopedia } = useAuth();
+  const { profile, canGenerate, canAccessEncyclopedia } = useAuth();
   const { addJob, hasActiveGenerations } = useGeneration();
   const navigate = useNavigate();
   const [topic, setTopic] = useState("");
@@ -205,6 +205,11 @@ const HomePage = () => {
   const handleGenerate = async () => {
     if (!topic || !level || !format) return;
 
+    if (!profile) {
+      toast.error(isFr ? "Profil en cours de chargement, réessayez dans un instant" : "Profile is still loading, please try again shortly");
+      return;
+    }
+
     if (!canGenerate()) {
       toast.error(t("limits.genLimit"));
       navigate("/vip");
@@ -232,9 +237,14 @@ const HomePage = () => {
           .filter(t => t.name.length > 0)
       : undefined;
 
+    const requestedPages = customPages || selectedFormat?.minPages || 15;
+    const clampedPages = pageCap
+      ? Math.min(Math.max(requestedPages, pageCap.min), pageCap.max)
+      : requestedPages;
+
     const jobId = await addJob({
       topic, level, format, depth,
-      targetPages: customPages || 15,
+      targetPages: clampedPages,
       tableOfContents,
       referenceContent: refContent,
       requiredThemes: cleanedThemes && cleanedThemes.length > 0 ? cleanedThemes : undefined,

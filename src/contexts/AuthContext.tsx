@@ -84,24 +84,51 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const subscriptionType = getEffectiveSubscription();
   const isVip = ["standard", "evolution", "vip", "gold"].includes(subscriptionType);
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
-    if (data && !error) {
+  const fetchProfile = async (userId: string, fallbackEmail = "") => {
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+
+    if (!data && error) {
+      console.error("Error loading profile:", error);
+    }
+
+    const profileData = data || {
+      id: userId,
+      name: "",
+      email: fallbackEmail,
+      gender: "homme",
+      age_range: "21-25",
+      default_level: "licence",
+      photo_url: null,
+      is_vip: false,
+      vip_plan: null,
+      vip_expires_at: null,
+      generations_this_week: 0,
+      last_generation_week: null,
+      questions_today: 0,
+      last_question_date: null,
+      subscription_type: "free",
+    };
+
+    if (!data) {
+      await supabase.from("profiles").upsert({ id: userId, email: fallbackEmail }, { onConflict: "id" });
+    }
+
+    if (profileData) {
       setProfile({
-        name: data.name || "",
-        email: data.email || "",
-        gender: data.gender || "homme",
-        age_range: data.age_range || "21-25",
-        default_level: data.default_level || "licence",
-        photo_url: data.photo_url,
-        is_vip: data.is_vip || false,
-        vip_plan: data.vip_plan,
-        vip_expires_at: data.vip_expires_at,
-        generations_this_week: data.generations_this_week || 0,
-        last_generation_week: data.last_generation_week,
-        questions_today: data.questions_today || 0,
-        last_question_date: data.last_question_date,
-        subscription_type: (data as any).subscription_type || "free",
+        name: profileData.name || "",
+        email: profileData.email || fallbackEmail || "",
+        gender: profileData.gender || "homme",
+        age_range: profileData.age_range || "21-25",
+        default_level: profileData.default_level || "licence",
+        photo_url: profileData.photo_url,
+        is_vip: profileData.is_vip || false,
+        vip_plan: profileData.vip_plan,
+        vip_expires_at: profileData.vip_expires_at,
+        generations_this_week: profileData.generations_this_week || 0,
+        last_generation_week: profileData.last_generation_week,
+        questions_today: profileData.questions_today || 0,
+        last_question_date: profileData.last_question_date,
+        subscription_type: (profileData as any).subscription_type || "free",
       });
     }
   };
@@ -111,17 +138,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        setTimeout(() => fetchProfile(session.user.id), 0);
+        setLoading(true);
+        setTimeout(() => {
+          fetchProfile(session.user.id, session.user.email || "").finally(() => setLoading(false));
+        }, 0);
       } else {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
+      if (session?.user) await fetchProfile(session.user.id, session.user.email || "");
       setLoading(false);
     });
 
