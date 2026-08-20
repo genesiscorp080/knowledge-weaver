@@ -227,15 +227,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { error: error.message };
+    setGuest(prev => { const next = { ...prev, active: false }; saveGuest(next); return next; });
     return { error: null };
+  };
+
+  const signInAsGuest = () => {
+    setGuest(prev => {
+      const next = { ...prev, active: true };
+      saveGuest(next);
+      return next;
+    });
+    setLoading(false);
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setGuest(prev => { const next = { ...prev, active: false }; saveGuest(next); return next; });
     setUser(null); setSession(null); setProfile(null);
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
+    if (isGuest) {
+      setGuest(prev => {
+        const next = { ...prev, profile: { ...prev.profile, ...updates } };
+        saveGuest(next);
+        return next;
+      });
+      return;
+    }
     if (!user) return;
     const dbUpdates: any = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
@@ -246,6 +265,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await supabase.from("profiles").update(dbUpdates).eq("id", user.id);
     setProfile(prev => prev ? { ...prev, ...updates } : null);
   };
+
 
   const getWeeklyLimit = (): number => {
     switch (subscriptionType) {
