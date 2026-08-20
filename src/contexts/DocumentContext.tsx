@@ -72,22 +72,44 @@ interface DocumentContextType {
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
 
+const GUEST_DATA_KEY = "prisca-guest-data";
+
+const reviveDates = (arr: any[]) => (arr || []).map((d: any) => ({
+  ...d,
+  createdAt: new Date(d.createdAt),
+  chatHistory: (d.chatHistory || []).map((c: any) => ({ ...c, timestamp: new Date(c.timestamp) })),
+}));
+
 export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [importedDocuments, setImportedDocuments] = useState<ImportedDocument[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
+  const { user, isGuest } = useAuth();
 
   // Load data from DB
   useEffect(() => {
     if (!user) {
+      if (isGuest) {
+        try {
+          const raw = localStorage.getItem(GUEST_DATA_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          setDocuments(reviveDates(parsed.documents) as GeneratedDocument[]);
+          setImportedDocuments(reviveDates(parsed.importedDocuments) as ImportedDocument[]);
+          setEvaluations((parsed.evaluations || []).map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) })));
+        } catch {
+          setDocuments([]); setImportedDocuments([]); setEvaluations([]);
+        }
+        setLoading(false);
+        return;
+      }
       setDocuments([]);
       setEvaluations([]);
       setImportedDocuments([]);
       setLoading(false);
       return;
     }
+
 
     const loadData = async () => {
       setLoading(true);
