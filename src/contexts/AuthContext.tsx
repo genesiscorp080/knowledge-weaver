@@ -62,11 +62,60 @@ function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
 
+const GUEST_KEY = "prisca-guest";
+const GUEST_LIMIT = 1;
+
+interface GuestState {
+  active: boolean;
+  generations: number;
+  profile: UserProfile;
+}
+
+const defaultGuestProfile: UserProfile = {
+  name: "Invité",
+  email: "",
+  gender: "homme",
+  age_range: "21-25",
+  default_level: "licence",
+  photo_url: null,
+  is_vip: false,
+  vip_plan: null,
+  vip_expires_at: null,
+  generations_this_week: 0,
+  last_generation_week: null,
+  questions_today: 0,
+  last_question_date: null,
+  subscription_type: "free",
+};
+
+function loadGuest(): GuestState {
+  try {
+    const raw = localStorage.getItem(GUEST_KEY);
+    if (!raw) return { active: false, generations: 0, profile: defaultGuestProfile };
+    const parsed = JSON.parse(raw);
+    return {
+      active: !!parsed.active,
+      generations: parsed.generations || 0,
+      profile: { ...defaultGuestProfile, ...(parsed.profile || {}) },
+    };
+  } catch {
+    return { active: false, generations: 0, profile: defaultGuestProfile };
+  }
+}
+
+function saveGuest(state: GuestState) {
+  try { localStorage.setItem(GUEST_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [guest, setGuest] = useState<GuestState>(loadGuest);
+  const isGuest = !user && guest.active;
+  const guestGenerationsLeft = Math.max(0, GUEST_LIMIT - guest.generations);
+
 
   const isPremiumEmail = (email: string) => PREMIUM_EMAILS.includes(email.toLowerCase());
 
