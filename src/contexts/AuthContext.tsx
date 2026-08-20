@@ -29,9 +29,12 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   isVip: boolean;
+  isGuest: boolean;
+  guestGenerationsLeft: number;
   subscriptionType: SubscriptionType;
   signUp: (email: string, password: string, name: string, gender: string, ageRange: string, defaultLevel: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInAsGuest: () => void;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   canGenerate: () => boolean;
@@ -44,6 +47,7 @@ interface AuthContextType {
   getEncyclopediaWeeklyLimit: () => number;
   canAccessEncyclopedia: () => boolean;
 }
+
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
