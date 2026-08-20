@@ -268,6 +268,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 
   const getWeeklyLimit = (): number => {
+    if (isGuest) return GUEST_LIMIT;
     switch (subscriptionType) {
       case "free": return 1;
       case "standard": return 20;
@@ -278,6 +279,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const getMaxConcurrent = (): number => {
+    if (isGuest) return 1;
     switch (subscriptionType) {
       case "free": case "standard": return 1;
       case "evolution": return 2;
@@ -287,6 +289,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const getEncyclopediaWeeklyLimit = (): number => {
+    if (isGuest) return 0;
     switch (subscriptionType) {
       case "evolution": return 1;
       case "vip": return 3;
@@ -296,10 +299,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const canAccessEncyclopedia = (): boolean => {
+    if (isGuest) return false;
     return ["evolution", "vip", "gold"].includes(subscriptionType);
   };
 
   const canGenerate = () => {
+    if (isGuest) return guest.generations < GUEST_LIMIT;
     if (!profile) return false;
     const limit = getWeeklyLimit();
     if (limit === Infinity) return true;
@@ -309,6 +314,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const canAskQuestion = () => {
+    if (isGuest) {
+      const today = getToday();
+      if (guest.profile.last_question_date !== today) return true;
+      return guest.profile.questions_today < 5;
+    }
     if (!profile) return false;
     if (isVip) return true;
     const today = getToday();
@@ -317,6 +327,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const recordGeneration = async () => {
+    if (isGuest) {
+      setGuest(prev => {
+        const next = { ...prev, generations: prev.generations + 1 };
+        saveGuest(next);
+        return next;
+      });
+      return;
+    }
     if (!user || !profile) return;
     const currentWeek = getCurrentWeek();
     const newCount = profile.last_generation_week === currentWeek ? profile.generations_this_week + 1 : 1;
@@ -325,6 +343,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const recordQuestion = async () => {
+    if (isGuest) {
+      const today = getToday();
+      setGuest(prev => {
+        const count = prev.profile.last_question_date === today ? prev.profile.questions_today + 1 : 1;
+        const next = { ...prev, profile: { ...prev.profile, questions_today: count, last_question_date: today } };
+        saveGuest(next);
+        return next;
+      });
+      return;
+    }
     if (!user || !profile) return;
     const today = getToday();
     const newCount = profile.last_question_date === today ? profile.questions_today + 1 : 1;
@@ -348,11 +376,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{
-      user, session, profile, loading, isVip, subscriptionType,
-      signUp, signIn, signOut, updateProfile,
+      user, session, profile: effProfile, loading, isVip, isGuest, guestGenerationsLeft, subscriptionType,
+      signUp, signIn, signInAsGuest, signOut, updateProfile,
       canGenerate, canAskQuestion, recordGeneration, recordQuestion,
       activateSubscription, getMaxConcurrent, getWeeklyLimit, getEncyclopediaWeeklyLimit, canAccessEncyclopedia,
     }}>
+
       {children}
     </AuthContext.Provider>
   );
