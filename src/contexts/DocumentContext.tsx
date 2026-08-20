@@ -165,9 +165,18 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     };
 
     loadData();
-  }, [user]);
+  }, [user, isGuest]);
+
+  // Persist guest data locally
+  useEffect(() => {
+    if (!isGuest || loading) return;
+    try {
+      localStorage.setItem(GUEST_DATA_KEY, JSON.stringify({ documents, importedDocuments, evaluations }));
+    } catch { /* quota exceeded */ }
+  }, [isGuest, loading, documents, importedDocuments, evaluations]);
 
   const addDocument = useCallback(async (doc: GeneratedDocument) => {
+    if (isGuest) { setDocuments(prev => [doc, ...prev]); return; }
     if (!user) return;
     await supabase.from("documents").insert({
       id: doc.id, user_id: user.id, title: doc.title, topic: doc.topic,
@@ -175,7 +184,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       content: doc.content, table_of_contents: doc.tableOfContents,
     });
     setDocuments(prev => [doc, ...prev]);
-  }, [user]);
+  }, [user, isGuest]);
+
 
   const deleteDocument = useCallback(async (id: string) => {
     if (user) {
