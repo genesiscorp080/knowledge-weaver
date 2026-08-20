@@ -29,9 +29,12 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   isVip: boolean;
+  isGuest: boolean;
+  guestGenerationsLeft: number;
   subscriptionType: SubscriptionType;
   signUp: (email: string, password: string, name: string, gender: string, ageRange: string, defaultLevel: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInAsGuest: () => void;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   canGenerate: () => boolean;
@@ -44,6 +47,7 @@ interface AuthContextType {
   getEncyclopediaWeeklyLimit: () => number;
   canAccessEncyclopedia: () => boolean;
 }
+
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -58,17 +62,70 @@ function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
 
+const GUEST_KEY = "prisca-guest";
+const GUEST_LIMIT = 1;
+
+interface GuestState {
+  active: boolean;
+  generations: number;
+  profile: UserProfile;
+}
+
+const defaultGuestProfile: UserProfile = {
+  name: "Invité",
+  email: "",
+  gender: "homme",
+  age_range: "21-25",
+  default_level: "licence",
+  photo_url: null,
+  is_vip: false,
+  vip_plan: null,
+  vip_expires_at: null,
+  generations_this_week: 0,
+  last_generation_week: null,
+  questions_today: 0,
+  last_question_date: null,
+  subscription_type: "free",
+};
+
+function loadGuest(): GuestState {
+  try {
+    const raw = localStorage.getItem(GUEST_KEY);
+    if (!raw) return { active: false, generations: 0, profile: defaultGuestProfile };
+    const parsed = JSON.parse(raw);
+    return {
+      active: !!parsed.active,
+      generations: parsed.generations || 0,
+      profile: { ...defaultGuestProfile, ...(parsed.profile || {}) },
+    };
+  } catch {
+    return { active: false, generations: 0, profile: defaultGuestProfile };
+  }
+}
+
+function saveGuest(state: GuestState) {
+  try { localStorage.setItem(GUEST_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [guest, setGuest] = useState<GuestState>(loadGuest);
+  const isGuest = !user && guest.active;
+  const guestGenerationsLeft = Math.max(0, GUEST_LIMIT - guest.generations);
+
+
+  const effProfile = isGuest ? guest.profile : profile;
 
   const isPremiumEmail = (email: string) => PREMIUM_EMAILS.includes(email.toLowerCase());
 
   const getEffectiveSubscription = (): SubscriptionType => {
+    if (isGuest) return "free";
     if (!profile) return "free";
     if (isPremiumEmail(profile.email)) return "gold";
+
     if (!profile.subscription_type || profile.subscription_type === "free") {
       // Legacy VIP check
       if (profile.is_vip) return "vip";
@@ -170,15 +227,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { error: error.message };
+    setGuest(prev => { const next = { ...prev, active: false }; saveGuest(next); return next; });
     return { error: null };
+  };
+
+  const signInAsGuest = () => {
+    setGuest(prev => {
+      const next = { ...prev, active: true };
+      saveGuest(next);
+      return next;
+    });
+    setLoading(false);
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setGuest(prev => { const next = { ...prev, active: false }; saveGuest(next); return next; });
     setUser(null); setSession(null); setProfile(null);
   };
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
+    if (isGuest) {
+      setGuest(prev => {
+        const next = { ...prev, profile: { ...prev.profile, ...updates } };
+        saveGuest(next);
+        return next;
+      });
+      return;
+    }
     if (!user) return;
     const dbUpdates: any = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
@@ -190,7 +266,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setProfile(prev => prev ? { ...prev, ...updates } : null);
   };
 
+
   const getWeeklyLimit = (): number => {
+    if (isGuest) return GUEST_LIMIT;
     switch (subscriptionType) {
       case "free": return 1;
       case "standard": return 20;
@@ -201,6 +279,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const getMaxConcurrent = (): number => {
+    if (isGuest) return 1;
     switch (subscriptionType) {
       case "free": case "standard": return 1;
       case "evolution": return 2;
@@ -210,6 +289,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const getEncyclopediaWeeklyLimit = (): number => {
+    if (isGuest) return 0;
     switch (subscriptionType) {
       case "evolution": return 1;
       case "vip": return 3;
@@ -219,10 +299,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const canAccessEncyclopedia = (): boolean => {
+    if (isGuest) return false;
     return ["evolution", "vip", "gold"].includes(subscriptionType);
   };
 
   const canGenerate = () => {
+    if (isGuest) return guest.generations < GUEST_LIMIT;
     if (!profile) return false;
     const limit = getWeeklyLimit();
     if (limit === Infinity) return true;
@@ -232,6 +314,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const canAskQuestion = () => {
+    if (isGuest) {
+      const today = getToday();
+      if (guest.profile.last_question_date !== today) return true;
+      return guest.profile.questions_today < 5;
+    }
     if (!profile) return false;
     if (isVip) return true;
     const today = getToday();
@@ -240,6 +327,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const recordGeneration = async () => {
+    if (isGuest) {
+      setGuest(prev => {
+        const next = { ...prev, generations: prev.generations + 1 };
+        saveGuest(next);
+        return next;
+      });
+      return;
+    }
     if (!user || !profile) return;
     const currentWeek = getCurrentWeek();
     const newCount = profile.last_generation_week === currentWeek ? profile.generations_this_week + 1 : 1;
@@ -248,6 +343,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const recordQuestion = async () => {
+    if (isGuest) {
+      const today = getToday();
+      setGuest(prev => {
+        const count = prev.profile.last_question_date === today ? prev.profile.questions_today + 1 : 1;
+        const next = { ...prev, profile: { ...prev.profile, questions_today: count, last_question_date: today } };
+        saveGuest(next);
+        return next;
+      });
+      return;
+    }
     if (!user || !profile) return;
     const today = getToday();
     const newCount = profile.last_question_date === today ? profile.questions_today + 1 : 1;
@@ -271,11 +376,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{
-      user, session, profile, loading, isVip, subscriptionType,
-      signUp, signIn, signOut, updateProfile,
+      user, session, profile: effProfile, loading, isVip, isGuest, guestGenerationsLeft, subscriptionType,
+      signUp, signIn, signInAsGuest, signOut, updateProfile,
       canGenerate, canAskQuestion, recordGeneration, recordQuestion,
       activateSubscription, getMaxConcurrent, getWeeklyLimit, getEncyclopediaWeeklyLimit, canAccessEncyclopedia,
     }}>
+
       {children}
     </AuthContext.Provider>
   );

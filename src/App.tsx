@@ -30,9 +30,9 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const ProtectedRoutes = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, isGuest } = useAuth();
 
-  if (loading) {
+  if (loading && !isGuest) {
     return (
       <div className="mobile-container flex items-center justify-center min-h-screen">
         <div className="animate-spin w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full" />
@@ -40,7 +40,8 @@ const ProtectedRoutes = () => {
     );
   }
 
-  if (!user) return <AuthPage />;
+  if (!user && !isGuest) return <AuthPage />;
+
 
   return (
     <DocumentProvider>

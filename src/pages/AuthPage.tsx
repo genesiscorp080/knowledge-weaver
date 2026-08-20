@@ -185,7 +185,25 @@ const AuthPage = () => {
             {loading && <Loader2 size={16} className="animate-spin" />}
             {isLogin ? (isFr ? "Se connecter" : "Login") : (isFr ? "Créer un compte" : "Create account")}
           </button>
+
+          <div className="flex items-center gap-3 pt-2">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{isFr ? "ou" : "or"}</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <button onClick={signInAsGuest}
+            className="w-full h-12 rounded-xl bg-secondary/60 text-foreground text-sm font-semibold flex items-center justify-center gap-2 transition-all hover:bg-secondary">
+            <UserRound size={16} />
+            {isFr ? "Continuer en mode invité" : "Continue as guest"}
+          </button>
+          <p className="text-[11px] text-muted-foreground text-center">
+            {isFr
+              ? "Mode invité : 1 seule génération de document, toutes les autres fonctionnalités disponibles. Vos données restent sur cet appareil."
+              : "Guest mode: 1 document generation only, all other features available. Your data stays on this device."}
+          </p>
         </motion.div>
+
       </div>
     </div>
   );

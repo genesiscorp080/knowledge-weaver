@@ -72,22 +72,44 @@ interface DocumentContextType {
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
 
+const GUEST_DATA_KEY = "prisca-guest-data";
+
+const reviveDates = (arr: any[]) => (arr || []).map((d: any) => ({
+  ...d,
+  createdAt: new Date(d.createdAt),
+  chatHistory: (d.chatHistory || []).map((c: any) => ({ ...c, timestamp: new Date(c.timestamp) })),
+}));
+
 export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [importedDocuments, setImportedDocuments] = useState<ImportedDocument[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
+  const { user, isGuest } = useAuth();
 
   // Load data from DB
   useEffect(() => {
     if (!user) {
+      if (isGuest) {
+        try {
+          const raw = localStorage.getItem(GUEST_DATA_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          setDocuments(reviveDates(parsed.documents) as GeneratedDocument[]);
+          setImportedDocuments(reviveDates(parsed.importedDocuments) as ImportedDocument[]);
+          setEvaluations((parsed.evaluations || []).map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) })));
+        } catch {
+          setDocuments([]); setImportedDocuments([]); setEvaluations([]);
+        }
+        setLoading(false);
+        return;
+      }
       setDocuments([]);
       setEvaluations([]);
       setImportedDocuments([]);
       setLoading(false);
       return;
     }
+
 
     const loadData = async () => {
       setLoading(true);
@@ -143,9 +165,18 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     };
 
     loadData();
-  }, [user]);
+  }, [user, isGuest]);
+
+  // Persist guest data locally
+  useEffect(() => {
+    if (!isGuest || loading) return;
+    try {
+      localStorage.setItem(GUEST_DATA_KEY, JSON.stringify({ documents, importedDocuments, evaluations }));
+    } catch { /* quota exceeded */ }
+  }, [isGuest, loading, documents, importedDocuments, evaluations]);
 
   const addDocument = useCallback(async (doc: GeneratedDocument) => {
+    if (isGuest) { setDocuments(prev => [doc, ...prev]); return; }
     if (!user) return;
     await supabase.from("documents").insert({
       id: doc.id, user_id: user.id, title: doc.title, topic: doc.topic,
@@ -153,7 +184,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       content: doc.content, table_of_contents: doc.tableOfContents,
     });
     setDocuments(prev => [doc, ...prev]);
-  }, [user]);
+  }, [user, isGuest]);
+
 
   const deleteDocument = useCallback(async (id: string) => {
     if (user) {
@@ -223,13 +255,16 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   }, [user]);
 
   const addImportedDocument = useCallback(async (doc: ImportedDocument) => {
+    if (isGuest) { setImportedDocuments(prev => [doc, ...prev]); return; }
     if (!user) return;
+
     await supabase.from("imported_documents").insert({
       id: doc.id, user_id: user.id, title: doc.title, file_name: doc.fileName,
       content: doc.content, page_count: doc.pageCount, theme: doc.theme,
     });
     setImportedDocuments(prev => [doc, ...prev]);
-  }, [user]);
+  }, [user, isGuest]);
+
 
   const deleteImportedDocument = useCallback(async (id: string) => {
     if (user) {

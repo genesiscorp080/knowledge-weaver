@@ -57,7 +57,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [showOverlay, setShowOverlay] = useState(false);
   const [overlayJobId, setOverlayJobId] = useState<string | null>(null);
-  const { user, profile, recordGeneration, getMaxConcurrent, canGenerate } = useAuth();
+  const { user, isGuest, profile, recordGeneration, getMaxConcurrent, canGenerate } = useAuth();
   const { addDocument } = useDocuments();
   const { language } = useLanguage();
   const { sendNotification } = useNotifications();
@@ -268,12 +268,20 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   }, [jobs, processJob, getMaxConcurrent]);
 
   const addJob = useCallback(async (jobInput: Omit<GenerationJob, "id" | "status" | "progress" | "currentStep" | "pagesGenerated" | "partialContent" | "partialToc" | "startTime" | "estimatedTimeLeft" | "sectionsCompleted" | "totalSections" | "nextSectionIdx">) => {
-    if (!user) return null;
+    if (!user && !isGuest) return null;
     if (!profile) {
       toast.error(language === "fr" ? "Profil en cours de chargement, réessayez dans un instant" : "Profile is still loading, please try again shortly");
       return null;
     }
-    if (!canGenerate()) return null;
+    if (!canGenerate()) {
+      if (isGuest) {
+        toast.error(language === "fr"
+          ? "Mode invité : 1 seule génération autorisée. Créez un compte pour continuer."
+          : "Guest mode: only 1 generation allowed. Create an account to continue.");
+      }
+      return null;
+    }
+
 
     const totalActive = jobs.filter(j => ["generating", "queued", "moderating", "paused"].includes(j.status)).length;
     const maxConcurrent = getMaxConcurrent();
@@ -328,7 +336,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     })();
 
     return newJob.id;
-  }, [jobs, user, profile, canGenerate, getMaxConcurrent, language]);
+  }, [jobs, user, isGuest, profile, canGenerate, getMaxConcurrent, language]);
 
   const cancelJob = useCallback((id: string) => {
     resumeStateRef.current.delete(id);
