@@ -263,7 +263,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       content: doc.content, page_count: doc.pageCount, theme: doc.theme,
     });
     setImportedDocuments(prev => [doc, ...prev]);
-  }, [user]);
+  }, [user, isGuest]);
+
 
   const deleteImportedDocument = useCallback(async (id: string) => {
     if (user) {
