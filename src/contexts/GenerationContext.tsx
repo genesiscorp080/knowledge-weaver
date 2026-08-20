@@ -57,7 +57,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [showOverlay, setShowOverlay] = useState(false);
   const [overlayJobId, setOverlayJobId] = useState<string | null>(null);
-  const { user, profile, recordGeneration, getMaxConcurrent, canGenerate } = useAuth();
+  const { user, isGuest, profile, recordGeneration, getMaxConcurrent, canGenerate } = useAuth();
   const { addDocument } = useDocuments();
   const { language } = useLanguage();
   const { sendNotification } = useNotifications();
