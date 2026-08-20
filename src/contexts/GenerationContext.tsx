@@ -336,7 +336,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     })();
 
     return newJob.id;
-  }, [jobs, user, profile, canGenerate, getMaxConcurrent, language]);
+  }, [jobs, user, isGuest, profile, canGenerate, getMaxConcurrent, language]);
 
   const cancelJob = useCallback((id: string) => {
     resumeStateRef.current.delete(id);
