@@ -117,11 +117,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const guestGenerationsLeft = Math.max(0, GUEST_LIMIT - guest.generations);
 
 
+  const effProfile = isGuest ? guest.profile : profile;
+
   const isPremiumEmail = (email: string) => PREMIUM_EMAILS.includes(email.toLowerCase());
 
   const getEffectiveSubscription = (): SubscriptionType => {
+    if (isGuest) return "free";
     if (!profile) return "free";
     if (isPremiumEmail(profile.email)) return "gold";
+
     if (!profile.subscription_type || profile.subscription_type === "free") {
       // Legacy VIP check
       if (profile.is_vip) return "vip";
