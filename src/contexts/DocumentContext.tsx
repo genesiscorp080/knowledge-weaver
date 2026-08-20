@@ -255,7 +255,9 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   }, [user]);
 
   const addImportedDocument = useCallback(async (doc: ImportedDocument) => {
+    if (isGuest) { setImportedDocuments(prev => [doc, ...prev]); return; }
     if (!user) return;
+
     await supabase.from("imported_documents").insert({
       id: doc.id, user_id: user.id, title: doc.title, file_name: doc.fileName,
       content: doc.content, page_count: doc.pageCount, theme: doc.theme,
