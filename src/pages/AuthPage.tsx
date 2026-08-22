@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, Loader2, ChevronDown } from "lucide-react";
+import { Eye, EyeOff, Loader2, UserRound } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -19,7 +19,7 @@ const levels = [
 const ageRanges = ["6-11", "12-15", "16-20", "21-25", "26-35", "36-45", "45+"];
 
 const AuthPage = () => {
-  const { signUp, signIn } = useAuth();
+  const { signUp, signIn, signInAsGuest } = useAuth();
   const { language } = useLanguage();
   const isFr = language === "fr";
   const [isLogin, setIsLogin] = useState(true);

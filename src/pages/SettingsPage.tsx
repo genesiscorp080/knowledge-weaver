@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight, FileText, Shield, Crown, X, Lock, Mail, Heart } from "lucide-react";
+import { User, Moon, Sun, Globe, Bell, BellOff, HelpCircle, LogOut, ChevronRight, FileText, Shield, Crown, X, Lock, Mail, Heart, UserRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import { useThemeContext } from "@/contexts/ThemeContext";
@@ -16,7 +16,7 @@ const SettingsPage = () => {
   const { theme, toggleTheme } = useThemeContext();
   const { language, setLanguage, t } = useLanguage();
   const { notificationsEnabled, setNotificationsEnabled } = useNotifications();
-  const { profile, signOut, isVip } = useAuth();
+  const { profile, signOut, isVip, isGuest, guestGenerationsLeft } = useAuth();
   const navigate = useNavigate();
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -286,6 +286,23 @@ Access, rectify, delete, and export your data via the Application.
     <div className="mobile-container">
       <StatusBar title={t("settings.title")} />
       <div className="page-content space-y-6">
+        {isGuest && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+            className="mt-2 rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <UserRound size={16} className="text-primary" />
+              <p className="text-sm font-semibold">{isFr ? "Mode invité" : "Guest mode"}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isFr
+                ? `1 génération de document (${guestGenerationsLeft} restante). Vos données restent sur cet appareil et peuvent être perdues.`
+                : `1 document generation (${guestGenerationsLeft} left). Your data stays on this device and may be lost.`}
+            </p>
+            <button onClick={() => signOut()} className="btn-primary w-full h-10 text-sm">
+              {isFr ? "Créer un compte" : "Create an account"}
+            </button>
+          </motion.div>
+        )}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2 flex items-center gap-4 cursor-pointer" onClick={() => navigate("/profile")}>
           <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden">
             {profile?.photo_url ? (
