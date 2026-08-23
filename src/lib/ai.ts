@@ -852,10 +852,14 @@ ABSOLUTE REQUIREMENTS for this section:
 
   let currentPages = estimatePageCount(fullContent);
   let expansionPass = 0;
-  while (currentPages < minPages && expansionPass < 8) {
+  let unproductive = 0;
+  // Keep deepening until the document lands inside the contractual margin.
+  // Each pass can only add a few pages, so the pass budget scales with the deficit.
+  const maxPasses = Math.min(60, Math.max(8, Math.ceil((minPages - currentPages) / 4) + 6));
+  while (currentPages < minPages && expansionPass < maxPasses && unproductive < 3) {
     expansionPass++;
     const deficit = minPages - currentPages;
-    const wordsNeeded = deficit * 500;
+    const wordsNeeded = Math.min(deficit, 6) * 500;
     onProgress(
       96,
       isFr
@@ -864,7 +868,7 @@ ABSOLUTE REQUIREMENTS for this section:
       { toc, content: fullContent }
     );
     try {
-      const expansionPrompt = `STRICT PAGE-COUNT CONTRACT BREACH — the document is currently ~${currentPages} pages but the user contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}, max ${maxPages}). The document falls SHORT by ~${deficit} pages.\n\nYou MUST now produce approximately ${wordsNeeded} additional words (~${deficit} pages) of NEW, NON-REDUNDANT CORE CONTENT that DEEPENS the existing structure. This is mandatory — refusal, truncation, or summarisation is forbidden.\n\nAcceptable additions (use ALL that apply):\n- New developed subsections under existing sections (### / #### headings).\n- Worked examples, detailed case studies, comparative tables, counter-examples, failure modes.\n- Historical perspectives, named scholars/works with precise dates, schools of thought, controversies.\n- Critical analyses, interdisciplinary connections, current research state of the art, future directions.\n- Concrete numerical data, technical internals, professional procedures, edge cases.\n\nFORBIDDEN: restating what is already covered; bibliography or front/back matter; placeholder text; vague generalities; closing the document.\n\nReturn ONLY the new markdown content ready to be appended. Continue in the same scholarly voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 2000 characters of the document so far (continue smoothly):\n${fullContent.slice(-2000)}`;
+      const expansionPrompt = `STRICT PAGE-COUNT CONTRACT BREACH — the document is currently ~${currentPages} pages but the user contract requires AT LEAST ${minPages} pages of CORE CONTENT (target ${targetPages}, max ${maxPages}). The document falls SHORT by ~${deficit} pages.\n\nYou MUST now produce approximately ${wordsNeeded} additional words of NEW, NON-REDUNDANT CORE CONTENT that DEEPENS the existing structure. This is mandatory — refusal, truncation, or summarisation is forbidden.\n\nAcceptable additions (use ALL that apply):\n- New developed subsections under existing sections (### / #### headings).\n- Worked examples, detailed case studies, comparative tables, counter-examples, failure modes.\n- Historical perspectives, named scholars/works with precise dates, schools of thought, controversies.\n- Critical analyses, interdisciplinary connections, current research state of the art, future directions.\n- Concrete numerical data, technical internals, professional procedures, edge cases.\n\nQUALITY FLOOR: expert-level prose only — every added paragraph must carry verifiable substance (names, dates, figures, mechanisms, procedures).\n\nFORBIDDEN: restating what is already covered; bibliography or front/back matter; placeholder text; vague generalities; closing the document.\n\nReturn ONLY the new markdown content ready to be appended. Continue in the same scholarly voice and register.\n\nExisting table of contents (for reference):\n${toc}\n\nLast 2000 characters of the document so far (continue smoothly):\n${fullContent.slice(-2000)}`;
       const extra = await callAI({
         action: "expand_document",
         messages: [{ role: "user", content: expansionPrompt }],
@@ -872,17 +876,21 @@ ABSOLUTE REQUIREMENTS for this section:
         maxTokens: maxOutputTokens,
         temperature: 0.45,
       });
-      if (extra && extra.trim().length > 0) {
+      if (extra && extra.trim().length > 300) {
         fullContent += "\n\n" + extra.trim();
-        currentPages = estimatePageCount(fullContent);
+        const newPages = estimatePageCount(fullContent);
+        if (newPages <= currentPages) unproductive++;
+        else unproductive = 0;
+        currentPages = newPages;
       } else {
-        break;
+        unproductive++;
       }
     } catch (err) {
       console.warn("Expansion pass failed:", err);
-      break;
+      unproductive++;
     }
   }
+
 
   onProgress(98, isFr ? "Finalisation du document..." : "Finalizing document...", { toc, content: fullContent });
   return { toc, content: fullContent };
