@@ -531,7 +531,12 @@ export function generatePDF(title: string, content: string): void {
   });
 }
 
+export function wordCount(content: string): number {
+  return (content.match(/\S+/g) || []).length;
+}
+
 export function estimatePageCount(content: string): number {
+
   const lines = content.split('\n');
   let totalLines = 0;
   for (const line of lines) {
