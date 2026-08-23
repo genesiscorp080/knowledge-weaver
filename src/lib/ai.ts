@@ -762,10 +762,12 @@ export async function generateDocumentChunked(
     const commonRules = `
 
 ABSOLUTE REQUIREMENTS for this section:
-- This writing unit is part ${i + 1}/${totalSections} of a strict ${targetPages}-page document. It MUST contribute about ${pagesPerSection} full pages (≈ ${wordsPerSection} words) of CORE CONTENT.
+- This writing unit is part ${i + 1}/${totalSections} of a strict ${targetPages}-page document. It MUST contribute AT LEAST ${wordsPerSection} words (≈ ${pagesPerSection} full pages) of CORE CONTENT. Producing less is a contract breach.
+- Count as you write. Do not stop before the word floor is reached. Never end this reply with a closing/summary of the whole document.
 - Write long, expert-level analytical prose. If the topic is technical, include internals, trade-offs, implementation details, standards, failure modes, design choices, and concrete professional examples.
 - Exhaustiveness is mandatory: do not merely define the concept; cover causes, mechanisms, variants, taxonomy, historical evolution, current state of the art, edge cases, limits, critiques, comparisons, applications, and consequences.
-- Avoid summaries. Do not compress. Prefer complete paragraphs that develop one idea deeply before moving to the next.
+- Quality floor: every paragraph must carry verifiable substance (names, dates, figures, mechanisms, formulas, procedures). Any paragraph that could be deleted without information loss is forbidden.
+- Avoid summaries. Do not compress. Prefer complete paragraphs (8–20 lines) that develop one idea deeply before moving to the next.
 - Headings will be CENTERED and body paragraphs JUSTIFIED on render — write balanced heading wording and full, well-built paragraphs.
 - Mobilise your knowledge of online and published scholarly sources even if no reference PDFs were attached: cite specific authors, works, dates, and accessible URLs/DOIs where appropriate.
 - Do NOT write a preface, foreword, bibliography, glossary, index, or appendix here unless this section's title explicitly is one — those are handled separately and DO NOT count toward the page target.
@@ -775,47 +777,78 @@ ABSOLUTE REQUIREMENTS for this section:
       ? `Write the COMPLETE and DETAILED content for the following section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}.${commonRules}`
       : `Continue writing the document about "${topic}". Now write the COMPLETE and DETAILED content for:\n\n${sectionToc}\n\nThis is section ${i + 1} of ${totalSections}. Continue from where you left off, maintaining the same style and depth.${commonRules}`;
 
+    let sectionText = "";
     try {
-      const sectionContent = await callAI({
+      sectionText = await callAI({
         action: "generate_section",
         messages: [{ role: "user", content: sectionPrompt }],
         systemPrompt,
         maxTokens: maxOutputTokens,
         temperature: 0.5,
       });
-      fullContent += (fullContent.length > 0 ? "\n\n" : "") + sectionContent;
-      // Save after each section to enable resume
-      onProgress(progress + (85 / totalSections), `${isFr ? "Section terminée" : "Section completed"} ${i + 1}/${totalSections}`, { toc, content: fullContent, sectionIdx: i + 1, totalSections });
     } catch (err) {
       console.error(`Section ${i + 1} failed:`, err);
       try {
         const simplePrompt = `Write detailed content about: ${sectionToc}\n\nTopic: "${topic}". Write at least ${Math.round(wordsPerSection / 2)} words. Use markdown headings.`;
-        const fallbackContent = await callAI({
+        sectionText = await callAI({
           action: "generate_section_retry",
           messages: [{ role: "user", content: simplePrompt }],
           systemPrompt,
           maxTokens: maxOutputTokens,
           temperature: 0.45,
         });
-        fullContent += (fullContent.length > 0 ? "\n\n" : "") + fallbackContent;
       } catch (retryErr) {
         console.error(`Section ${i + 1} retry also failed:`, retryErr);
         // If it's an offline / network error, propagate so the job can pause and resume
         const msg = String((retryErr as any)?.message || "");
         if (msg === "OFFLINE" || /network|fetch|failed to fetch/i.test(msg)) {
-          // Save current state into a custom error so caller can resume
           const resumeErr = new Error("RESUMABLE");
           (resumeErr as any).resumeState = { toc, content: fullContent, nextSectionIdx: i };
           throw resumeErr;
         }
-        fullContent += (fullContent.length > 0 ? "\n\n" : "") + `## ${sectionName}\n\n*[Section generation failed. Please regenerate this section.]*`;
+        sectionText = `## ${sectionName}\n\n*[Section generation failed. Please regenerate this section.]*`;
       }
     }
 
+    // Per-section volume enforcement: a model reply is usually shorter than the
+    // requested floor, so top the section up until it carries its own share of
+    // the page contract. This is what actually makes long documents land in range.
+    const floor = Math.round(wordsPerSection * 0.9);
+    let topUps = 0;
+    while (wordCount(sectionText) < floor && topUps < 4) {
+      topUps++;
+      const missing = floor - wordCount(sectionText);
+      onProgress(
+        progress,
+        `${isFr ? "Approfondissement section" : "Deepening section"} ${i + 1}/${totalSections} (+${Math.ceil(missing / 500)}p)`,
+        { toc, content: fullContent, sectionIdx: i, totalSections }
+      );
+      try {
+        const contPrompt = `CONTINUE the SAME section without repeating anything already written. This section currently has ~${wordCount(sectionText)} words but MUST reach at least ${floor} words. Produce approximately ${missing} additional words of NEW core content for this section only.\n\nSection being written:\n${sectionToc}\n\nDeepen with: new #### subsections, worked examples, detailed case studies, numerical data, comparative markdown tables, counter-examples, failure modes, historical milestones with named scholars and dates, formal derivations where relevant, critical debates, professional procedures.\n\nFORBIDDEN: repeating existing content, general summaries, closing the document, bibliography or front/back matter, placeholder text.\n\nLast 1500 characters written (continue smoothly):\n${sectionText.slice(-1500)}\n\nReturn ONLY the new markdown content to append.`;
+        const extra = await callAI({
+          action: "extend_section",
+          messages: [{ role: "user", content: contPrompt }],
+          systemPrompt,
+          maxTokens: maxOutputTokens,
+          temperature: 0.5,
+        });
+        if (!extra || extra.trim().length < 200) break;
+        sectionText += "\n\n" + extra.trim();
+      } catch (err) {
+        console.warn(`Section ${i + 1} top-up failed:`, err);
+        break;
+      }
+    }
+
+    fullContent += (fullContent.length > 0 ? "\n\n" : "") + sectionText;
+    // Save after each section to enable resume
+    onProgress(progress + (85 / totalSections), `${isFr ? "Section terminée" : "Section completed"} ${i + 1}/${totalSections}`, { toc, content: fullContent, sectionIdx: i + 1, totalSections });
+
     if (i < totalSections - 1) {
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 800));
     }
   }
+
 
   let currentPages = estimatePageCount(fullContent);
   let expansionPass = 0;
