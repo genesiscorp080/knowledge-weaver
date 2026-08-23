@@ -191,29 +191,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    let lastFetchedId: string | null = null;
+
+    const loadProfile = (id: string, email: string) => {
+      if (cancelled || lastFetchedId === id) return;
+      lastFetchedId = id;
+      // Profile loading never blocks the UI: a slow/failed request must not
+      // leave the user stuck on the loading spinner after signing in.
+      setTimeout(() => {
+        fetchProfile(id, email).catch((e) => console.error("Profile fetch failed:", e));
+      }, 0);
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+      setLoading(false);
       if (session?.user) {
-        setLoading(true);
-        setTimeout(() => {
-          fetchProfile(session.user.id, session.user.email || "").finally(() => setLoading(false));
-        }, 0);
+        loadProfile(session.user.id, session.user.email || "");
       } else {
+        lastFetchedId = null;
         setProfile(null);
-        setLoading(false);
       }
     });
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return;
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) await fetchProfile(session.user.id, session.user.email || "");
       setLoading(false);
-    });
+      if (session?.user) loadProfile(session.user.id, session.user.email || "");
+    }).catch(() => setLoading(false));
 
-    return () => subscription.unsubscribe();
+    // Hard safety net: the app must never spin forever.
+    const failsafe = setTimeout(() => setLoading(false), 6000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(failsafe);
+      subscription.unsubscribe();
+    };
   }, []);
+
 
   const signUp = async (email: string, password: string, name: string, gender: string, ageRange: string, defaultLevel: string) => {
     const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { name } } });
