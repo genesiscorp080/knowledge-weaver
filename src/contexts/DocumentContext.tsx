@@ -294,7 +294,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <DocumentContext.Provider value={{
-      documents, addDocument, deleteDocument, renameDocument, getDocument,
+      documents, addDocument, deleteDocument, renameDocument, getDocument, updateDocumentContent,
       addChatMessage, getAllChats, evaluations, addEvaluation, deleteEvaluation,
       importedDocuments, addImportedDocument, deleteImportedDocument,
       getImportedDocument, addImportedChatMessage, getAllDocumentsForEval, loading,
