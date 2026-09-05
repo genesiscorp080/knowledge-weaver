@@ -29,7 +29,32 @@ export interface GenerationJob {
   totalSections: number;
   // Resume state
   nextSectionIdx: number;
+  // Enhancement jobs (continue / strengthen an existing document)
+  kind?: "generate" | "enhance";
+  sourceDocId?: string;
+  sourceTitle?: string;
+  sourceContent?: string;
+  sourceToc?: string;
+  enhanceMode?: EnhanceMode;
+  extraPages?: number;
+  intensity?: number;
 }
+
+export interface EnhanceJobInput {
+  sourceDocId: string;
+  sourceTitle: string;
+  sourceContent: string;
+  sourceToc: string;
+  topic: string;
+  level: string;
+  format: string;
+  depth: string;
+  enhanceMode: EnhanceMode;
+  extraPages: number;
+  intensity: number;
+  description?: string;
+}
+
 
 interface GenerationContextType {
   jobs: GenerationJob[];
