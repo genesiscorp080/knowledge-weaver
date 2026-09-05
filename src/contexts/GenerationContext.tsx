@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDocuments } from "@/contexts/DocumentContext";
-import { generateDocumentChunked, estimatePageCount, checkTopicAppropriate, RequiredTheme } from "@/lib/ai";
+import { generateDocumentChunked, enhanceDocument, estimatePageCount, checkTopicAppropriate, RequiredTheme, EnhanceMode } from "@/lib/ai";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { toast } from "sonner";
