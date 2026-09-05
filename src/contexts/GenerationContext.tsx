@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDocuments } from "@/contexts/DocumentContext";
-import { generateDocumentChunked, estimatePageCount, checkTopicAppropriate, RequiredTheme } from "@/lib/ai";
+import { generateDocumentChunked, enhanceDocument, estimatePageCount, checkTopicAppropriate, RequiredTheme, EnhanceMode } from "@/lib/ai";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { toast } from "sonner";
@@ -29,7 +29,32 @@ export interface GenerationJob {
   totalSections: number;
   // Resume state
   nextSectionIdx: number;
+  // Enhancement jobs (continue / strengthen an existing document)
+  kind?: "generate" | "enhance";
+  sourceDocId?: string;
+  sourceTitle?: string;
+  sourceContent?: string;
+  sourceToc?: string;
+  enhanceMode?: EnhanceMode;
+  extraPages?: number;
+  intensity?: number;
 }
+
+export interface EnhanceJobInput {
+  sourceDocId: string;
+  sourceTitle: string;
+  sourceContent: string;
+  sourceToc: string;
+  topic: string;
+  level: string;
+  format: string;
+  depth: string;
+  enhanceMode: EnhanceMode;
+  extraPages: number;
+  intensity: number;
+  description?: string;
+}
+
 
 interface GenerationContextType {
   jobs: GenerationJob[];

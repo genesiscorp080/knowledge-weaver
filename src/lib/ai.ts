@@ -897,6 +897,298 @@ ABSOLUTE REQUIREMENTS for this section:
   }
 
 
+  onProgress(97, isFr ? "Compilation de la page des références..." : "Compiling the references page...", { toc, content: fullContent });
+  fullContent = await appendReferencesPage(fullContent, format, language, topic, systemPrompt);
+
   onProgress(98, isFr ? "Finalisation du document..." : "Finalizing document...", { toc, content: fullContent });
   return { toc, content: fullContent };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// REFERENCES PAGE — every produced document must end with a page
+// listing ALL references used, among the back-matter pages.
+// ═══════════════════════════════════════════════════════════════════
+
+const REF_HEADING_RE = /^#{1,3}\s*(références?\s*(bibliographiques?)?|bibliographie|bibliographic references|references)\s*$/i;
+
+/** Removes a previously generated references/bibliography section (kept at the end). */
+export function stripReferencesSection(content: string): string {
+  const lines = content.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (REF_HEADING_RE.test(lines[i].trim())) return lines.slice(0, i).join("\n").trimEnd();
+  }
+  return content;
+}
+
+/** Collects the citation-looking lines of a document to feed the compiler. */
+function collectCitationCandidates(content: string, max = 500): string {
+  const lines = content.split("\n");
+  const hits: string[] = [];
+  for (const l of lines) {
+    const t = l.trim();
+    if (!t || t.length < 15) continue;
+    if (/(\(|\[)\s*(1[5-9]\d{2}|20\d{2})/.test(t) || /https?:\/\//i.test(t) || /\bdoi\b/i.test(t)) {
+      hits.push(t.slice(0, 300));
+      if (hits.length >= max) break;
+    }
+  }
+  return hits.join("\n");
+}
+
+/**
+ * Compiles and appends the mandatory final references page.
+ * Always placed among the back-matter pages, at the very end of the document.
+ */
+export async function appendReferencesPage(
+  content: string,
+  format: string,
+  language: string,
+  topic: string,
+  systemPrompt?: string,
+): Promise<string> {
+  const isFr = language !== "en";
+  const heading = isFr ? "Références" : "References";
+  const minRefs = format === "encyclopedie" ? 60 : format === "livre" ? 30 : format === "cours" ? 15 : 10;
+  const body = stripReferencesSection(content);
+  const candidates = collectCitationCandidates(body);
+  const toc = buildTocFromMarkdown(body).slice(0, 6000);
+
+  const prompt = `Compile the FINAL REFERENCES PAGE of a document about "${topic}".
+
+Your task: produce ONE complete, alphabetically ordered reference list gathering EVERY source used, cited, quoted or mobilised in the document — books, peer-reviewed articles, standards, official reports, authoritative web resources (with URL/DOI when available).
+
+Rules:
+- At least ${minRefs} entries. No duplicates. No invented sources: only recognised, verifiable works.
+- Uniform academic style: Author, Initials. (Year). *Title*. Publisher / Journal, volume(issue), pages. URL/DOI when relevant.
+- Group under these sub-headings when they apply: ${isFr ? "\"### Ouvrages\", \"### Articles et publications scientifiques\", \"### Normes, rapports et documents institutionnels\", \"### Ressources en ligne\"" : "\"### Books\", \"### Scientific articles\", \"### Standards, reports and institutional documents\", \"### Online resources\""}.
+- Output ONLY markdown starting with "## ${heading}". No commentary, no preamble.
+
+Document structure (for coverage):
+${toc}
+
+Citation traces detected inside the document (must ALL be reflected in the list):
+${candidates.slice(0, 12000)}`;
+
+  try {
+    const refs = await callAI({
+      action: "compile_references",
+      messages: [{ role: "user", content: prompt }],
+      systemPrompt,
+      maxTokens: 8000,
+      temperature: 0.25,
+    }, 2);
+    if (refs && refs.trim().length > 100) {
+      const clean = refs.trim().replace(/^#+\s*.*$/m, `## ${heading}`);
+      return `${body}\n\n---\n\n${clean}\n`;
+    }
+  } catch (err) {
+    console.warn("References page compilation failed:", err);
+  }
+  return content;
+}
+
+/** Rebuilds a hierarchical table of contents from the markdown headings. */
+export function buildTocFromMarkdown(content: string): string {
+  const out: string[] = [];
+  for (const line of content.split("\n")) {
+    const m = line.match(/^(#{1,4})\s+(.+)$/);
+    if (!m) continue;
+    const level = m[1].length;
+    const text = m[2].replace(/[*_`]/g, "").trim();
+    if (!text) continue;
+    out.push("  ".repeat(Math.max(0, level - 1)) + text);
+  }
+  return out.join("\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DOCUMENT ENHANCEMENT — continue and/or massively strengthen
+// an already generated document.
+// ═══════════════════════════════════════════════════════════════════
+
+export type EnhanceMode = "continue" | "improve" | "both";
+
+export interface EnhanceOptions {
+  title: string;
+  topic: string;
+  level: string;
+  format: string;
+  depth: string;
+  content: string;
+  toc: string;
+  mode: EnhanceMode;
+  /** Pages of brand-new content to add (continue / both). */
+  extraPages: number;
+  /** 1 = light polish, 2 = strong rewrite, 3 = maximal reinforcement. */
+  intensity: number;
+  instructions?: string;
+  language: string;
+}
+
+/** Strips the "# Title + Table of contents + ---" front matter from a stored document. */
+function stripFrontMatter(content: string): string {
+  const sep = content.indexOf("\n---\n");
+  if (sep > -1 && /table des matières|table of contents/i.test(content.slice(0, sep))) {
+    return content.slice(sep + 5).trimStart();
+  }
+  return content;
+}
+
+/** Splits markdown into chunks of ~targetWords, never cutting inside a paragraph. */
+function splitMarkdownChunks(content: string, targetWords: number): string[] {
+  const blocks = content.split(/\n{2,}/);
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let count = 0;
+  for (const b of blocks) {
+    const w = wordCount(b);
+    if (count > 0 && count + w > targetWords) {
+      chunks.push(current.join("\n\n"));
+      current = [];
+      count = 0;
+    }
+    current.push(b);
+    count += w;
+  }
+  if (current.length) chunks.push(current.join("\n\n"));
+  return chunks.filter(c => c.trim().length > 0);
+}
+
+export async function enhanceDocument(
+  opts: EnhanceOptions,
+  onProgress: (progress: number, step: string, partial: { content?: string; sectionIdx?: number; totalSections?: number }) => void,
+  resumeFrom?: { content: string; nextSectionIdx: number },
+): Promise<{ content: string; toc: string; pages: number }> {
+  const isFr = opts.language === "fr";
+  const original = stripFrontMatter(stripReferencesSection(opts.content));
+  const originalPages = estimatePageCount(original);
+  const doImprove = opts.mode !== "continue";
+  const doContinue = opts.mode !== "improve";
+  const extraPages = doContinue ? Math.max(1, opts.extraPages) : 0;
+  const factor = opts.intensity >= 3 ? 2.2 : opts.intensity === 2 ? 1.6 : 1.25;
+
+  const targetTotalPages = Math.round(originalPages * (doImprove ? factor : 1)) + extraPages;
+  const systemPrompt = buildGenerateSystemPrompt(
+    opts.level, opts.format, opts.depth, targetTotalPages, opts.language,
+    undefined, undefined, opts.instructions,
+  );
+  const maxOutputTokens = opts.format === "encyclopedie" || opts.format === "livre" ? 16000 : 12000;
+  const pagesPerCall = opts.format === "encyclopedie" ? 6 : opts.format === "livre" ? 5 : 3;
+
+  const chunks = doImprove ? splitMarkdownChunks(original, 1400) : [];
+  const contSegments = doContinue ? Math.max(1, Math.ceil(extraPages / pagesPerCall)) : 0;
+  const totalUnits = chunks.length + contSegments;
+
+  let out = resumeFrom?.content ?? (doImprove ? "" : original);
+  const startIdx = resumeFrom?.nextSectionIdx ?? 0;
+
+  const briefBlock = opts.instructions?.trim()
+    ? `\n\nUSER REINFORCEMENT BRIEF (mandatory, applies to every added or rewritten passage):\n${opts.instructions.trim()}`
+    : "";
+
+  for (let i = startIdx; i < totalUnits; i++) {
+    const progress = 5 + (i / Math.max(1, totalUnits)) * 88;
+
+    if (i < chunks.length) {
+      const chunk = chunks[i];
+      const floorWords = Math.round(wordCount(chunk) * factor);
+      onProgress(
+        progress,
+        `${isFr ? "Renforcement du passage" : "Strengthening passage"} ${i + 1}/${totalUnits}`,
+        { content: out, sectionIdx: i, totalSections: totalUnits },
+      );
+      const prompt = `REWRITE AND MASSIVELY STRENGTHEN the following passage of an existing document about "${topicLabel(opts)}".
+
+MISSION — this is a reinforcement pass, not a summary:
+- Keep the SAME headings, the SAME order and the SAME numbering. Never drop a heading, never reorder, never merge sections.
+- Elevate the editorial quality to publishable academic standard: precise technical vocabulary, varied syntax, controlled rhythm, impeccable transitions, no clichés, no filler.
+- Raise the content level to "${opts.level}" with depth "${opts.depth}": add mechanisms, formal reasoning, numbers, named scholars with dates, standards, taxonomies, worked examples, detailed case studies, counter-examples, failure modes, comparative markdown tables, critical debates, state of the art and open problems.
+- Every existing idea must survive, enriched — nothing may be lost, shortened or vaguely paraphrased.
+- The rewritten passage MUST contain AT LEAST ${floorWords} words (the source has ~${wordCount(chunk)}). Producing less is a contract breach.
+- Do NOT add a bibliography, references, glossary, index or appendix here — the references page is compiled separately.
+- Output ONLY the rewritten markdown for this passage, nothing else.${briefBlock}
+
+PASSAGE TO STRENGTHEN:
+${chunk}`;
+
+      let rewritten = "";
+      try {
+        rewritten = await callAI({
+          action: "enhance_passage",
+          messages: [{ role: "user", content: prompt }],
+          systemPrompt,
+          maxTokens: maxOutputTokens,
+          temperature: 0.45,
+        });
+      } catch (err) {
+        const msg = String((err as any)?.message || "");
+        if (msg === "OFFLINE" || /network|fetch|failed to fetch/i.test(msg)) {
+          const resumeErr = new Error("RESUMABLE");
+          (resumeErr as any).resumeState = { content: out, nextSectionIdx: i };
+          throw resumeErr;
+        }
+        console.warn("Enhance passage failed, keeping original:", err);
+      }
+      const kept = rewritten && wordCount(rewritten) >= wordCount(chunk) * 0.9 ? rewritten.trim() : chunk;
+      out += (out.length ? "\n\n" : "") + kept;
+    } else {
+      const segIdx = i - chunks.length;
+      const wordsTarget = Math.min(extraPages, pagesPerCall) * 500;
+      onProgress(
+        progress,
+        `${isFr ? "Poursuite du document" : "Continuing document"} ${segIdx + 1}/${contSegments}`,
+        { content: out, sectionIdx: i, totalSections: totalUnits },
+      );
+      const prompt = `CONTINUE the document about "${topicLabel(opts)}". It is incomplete and must be extended with ${extraPages} additional pages of CORE CONTENT — this call must produce installment ${segIdx + 1}/${contSegments}, i.e. AT LEAST ${wordsTarget} words of NEW material.
+
+RULES:
+- Continue seamlessly in the same voice, register, numbering logic and heading hierarchy. Open NEW chapters/sections (## / ### / ####) that extend the existing plan where it stops or where it is thin.
+- Cover what the document still lacks: missing chapters announced by the plan, unexplored mechanisms, advanced developments, methodology, professional practice, extended case studies, quantitative data, comparisons, controversies, current research, limits, future directions.
+- Absolutely no repetition of what is already written, no global summary, no closing of the whole document unless this is the last installment (${segIdx + 1 === contSegments ? "IT IS the last installment: end with a substantial general conclusion" : "it is NOT the last installment: do not conclude"}).
+- No bibliography, references, glossary, index or appendix — compiled separately.
+- Output ONLY the new markdown to append.${briefBlock}
+
+EXISTING TABLE OF CONTENTS:
+${buildTocFromMarkdown(out).slice(0, 6000)}
+
+LAST 2000 CHARACTERS ALREADY WRITTEN (continue smoothly):
+${out.slice(-2000)}`;
+
+      try {
+        const extra = await callAI({
+          action: "continue_document",
+          messages: [{ role: "user", content: prompt }],
+          systemPrompt,
+          maxTokens: maxOutputTokens,
+          temperature: 0.5,
+        });
+        if (extra && extra.trim().length > 200) out += "\n\n" + extra.trim();
+      } catch (err) {
+        const msg = String((err as any)?.message || "");
+        if (msg === "OFFLINE" || /network|fetch|failed to fetch/i.test(msg)) {
+          const resumeErr = new Error("RESUMABLE");
+          (resumeErr as any).resumeState = { content: out, nextSectionIdx: i };
+          throw resumeErr;
+        }
+        console.warn("Continuation failed:", err);
+      }
+    }
+
+    onProgress(progress, `${isFr ? "Étape terminée" : "Step completed"} ${i + 1}/${totalUnits}`, {
+      content: out, sectionIdx: i + 1, totalSections: totalUnits,
+    });
+    if (i < totalUnits - 1) await new Promise(r => setTimeout(r, 600));
+  }
+
+  onProgress(95, isFr ? "Compilation des références..." : "Compiling references...", { content: out });
+  const withRefs = await appendReferencesPage(out, opts.format, opts.language, topicLabel(opts), systemPrompt);
+
+  const toc = buildTocFromMarkdown(stripReferencesSection(withRefs));
+  const finalContent = `# ${opts.title}\n\n## ${isFr ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${withRefs}`;
+  onProgress(99, isFr ? "Finalisation..." : "Finalizing...", { content: finalContent });
+  return { content: finalContent, toc, pages: estimatePageCount(finalContent) };
+}
+
+function topicLabel(opts: EnhanceOptions): string {
+  return opts.topic?.trim() || opts.title;
 }

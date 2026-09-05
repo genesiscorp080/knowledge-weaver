@@ -55,6 +55,7 @@ interface DocumentContextType {
   addDocument: (doc: GeneratedDocument) => Promise<void>;
   deleteDocument: (id: string) => void;
   renameDocument: (id: string, newTitle: string) => void;
+  updateDocumentContent: (id: string, content: string, tableOfContents: string, pages: number) => Promise<void>;
   getDocument: (id: string) => GeneratedDocument | ImportedDocument | undefined;
   addChatMessage: (docId: string, message: ChatMessage) => void;
   getAllChats: () => ChatMessage[];
@@ -200,6 +201,17 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     setDocuments(prev => prev.map(d => d.id === id ? { ...d, title: newTitle } : d));
   }, [user]);
 
+  const updateDocumentContent = useCallback(async (id: string, content: string, tableOfContents: string, pages: number) => {
+    if (user) {
+      await supabase.from("documents").update({
+        content, table_of_contents: tableOfContents, pages,
+      }).eq("id", id).eq("user_id", user.id);
+    }
+    setDocuments(prev => prev.map(d => d.id === id ? { ...d, content, tableOfContents, pages } : d));
+  }, [user]);
+
+
+
   const getDocument = useCallback(
     (id: string) => documents.find(d => d.id === id) || importedDocuments.find(d => d.id === id),
     [documents, importedDocuments]
@@ -282,7 +294,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <DocumentContext.Provider value={{
-      documents, addDocument, deleteDocument, renameDocument, getDocument,
+      documents, addDocument, deleteDocument, renameDocument, getDocument, updateDocumentContent,
       addChatMessage, getAllChats, evaluations, addEvaluation, deleteEvaluation,
       importedDocuments, addImportedDocument, deleteImportedDocument,
       getImportedDocument, addImportedChatMessage, getAllDocumentsForEval, loading,
