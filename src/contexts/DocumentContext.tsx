@@ -201,6 +201,17 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     setDocuments(prev => prev.map(d => d.id === id ? { ...d, title: newTitle } : d));
   }, [user]);
 
+  const updateDocumentContent = useCallback(async (id: string, content: string, tableOfContents: string, pages: number) => {
+    if (user) {
+      await supabase.from("documents").update({
+        content, table_of_contents: tableOfContents, pages,
+      }).eq("id", id).eq("user_id", user.id);
+    }
+    setDocuments(prev => prev.map(d => d.id === id ? { ...d, content, tableOfContents, pages } : d));
+  }, [user]);
+
+
+
   const getDocument = useCallback(
     (id: string) => documents.find(d => d.id === id) || importedDocuments.find(d => d.id === id),
     [documents, importedDocuments]
