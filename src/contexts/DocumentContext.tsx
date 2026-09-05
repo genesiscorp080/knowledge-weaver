@@ -55,6 +55,7 @@ interface DocumentContextType {
   addDocument: (doc: GeneratedDocument) => Promise<void>;
   deleteDocument: (id: string) => void;
   renameDocument: (id: string, newTitle: string) => void;
+  updateDocumentContent: (id: string, content: string, tableOfContents: string, pages: number) => Promise<void>;
   getDocument: (id: string) => GeneratedDocument | ImportedDocument | undefined;
   addChatMessage: (docId: string, message: ChatMessage) => void;
   getAllChats: () => ChatMessage[];
