@@ -897,6 +897,9 @@ ABSOLUTE REQUIREMENTS for this section:
   }
 
 
+  onProgress(97, isFr ? "Compilation de la page des références..." : "Compiling the references page...", { toc, content: fullContent });
+  fullContent = await appendReferencesPage(fullContent, format, language, topic, systemPrompt);
+
   onProgress(98, isFr ? "Finalisation du document..." : "Finalizing document...", { toc, content: fullContent });
   return { toc, content: fullContent };
 }
