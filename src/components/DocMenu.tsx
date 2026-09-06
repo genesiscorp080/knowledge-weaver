@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { MoreVertical, Pencil, Trash2, Download, Edit3 } from "lucide-react";
+import { MoreVertical, Pencil, Trash2, Download, Edit3, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -8,14 +8,15 @@ interface DocMenuProps {
   onDelete: () => void;
   onDownload: () => void;
   onEdit?: () => void;
+  onEnhance?: () => void;
 }
 
-const DocMenu = ({ onRename, onDelete, onDownload, onEdit }: DocMenuProps) => {
+const DocMenu = ({ onRename, onDelete, onDownload, onEdit, onEnhance }: DocMenuProps) => {
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -29,16 +30,22 @@ const DocMenu = ({ onRename, onDelete, onDownload, onEdit }: DocMenuProps) => {
     if (open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      setDropUp(spaceBelow < 200);
+      setDropUp(spaceBelow < 240);
     }
   }, [open]);
 
   const items = [
     { label: t("common.rename"), icon: Pencil, action: onRename },
+    ...(onEnhance ? [{
+      label: language === "fr" ? "Renforcer / Continuer" : "Reinforce / Continue",
+      icon: Sparkles,
+      action: onEnhance,
+    }] : []),
     ...(onEdit ? [{ label: t("common.edit"), icon: Edit3, action: onEdit }] : []),
     { label: t("common.download"), icon: Download, action: onDownload },
     { label: t("common.delete"), icon: Trash2, action: onDelete, destructive: true },
   ];
+
 
   return (
     <div ref={ref} className="relative">
