@@ -139,8 +139,88 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
       startTime: hasResume ? j.startTime : Date.now(),
     } : j));
 
+    // ---- Progress reporter shared by both job kinds ----
+    const report = (progress: number, step: string, partial: { toc?: string; content?: string; sectionIdx?: number; totalSections?: number }) => {
+      if (!onlineRef.current) throw new Error("OFFLINE");
+      if (pauseRequestedRef.current.has(job.id)) throw new Error("PAUSED_MANUAL");
+
+      if (partial.toc !== undefined || partial.content !== undefined) {
+        const prevState = resumeStateRef.current.get(job.id) || { toc: "", content: "", nextSectionIdx: 0 };
+        resumeStateRef.current.set(job.id, {
+          toc: partial.toc ?? prevState.toc,
+          content: partial.content ?? prevState.content,
+          nextSectionIdx: partial.sectionIdx ?? prevState.nextSectionIdx,
+        });
+      }
+
+      const estPages = Math.round((progress / 100) * job.targetPages);
+      setJobs(prev => prev.map(j => {
+        if (j.id !== job.id) return j;
+        const elapsed = (Date.now() - j.startTime) / 1000;
+        let eta = "";
+        if (progress > 5) {
+          const totalEst = (elapsed / progress) * 100;
+          const remaining = Math.max(0, totalEst - elapsed);
+          eta = remaining > 60 ? `~${Math.round(remaining / 60)} min` : `~${Math.round(remaining)}s`;
+        }
+        return {
+          ...j,
+          progress: Math.min(98, progress),
+          currentStep: step,
+          pagesGenerated: estPages,
+          estimatedTimeLeft: eta,
+          sectionsCompleted: partial.sectionIdx ?? j.sectionsCompleted,
+          totalSections: partial.totalSections ?? j.totalSections,
+          partialToc: partial.toc ?? j.partialToc,
+          partialContent: partial.content ?? j.partialContent,
+        };
+      }));
+    };
+
     try {
       const resumeState = resumeStateRef.current.get(job.id);
+
+      // ================= ENHANCEMENT JOB =================
+      if (job.kind === "enhance" && job.sourceDocId) {
+        const result = await enhanceDocument(
+          {
+            title: job.sourceTitle || job.topic,
+            topic: job.topic,
+            level: job.level,
+            format: job.format,
+            depth: job.depth,
+            content: job.sourceContent || "",
+            toc: job.sourceToc || "",
+            mode: job.enhanceMode || "both",
+            extraPages: job.extraPages ?? 0,
+            intensity: job.intensity ?? 2,
+            instructions: job.description,
+            language,
+          },
+          (progress, step, partial) => report(progress, step, partial),
+          resumeState ? { content: resumeState.content, nextSectionIdx: resumeState.nextSectionIdx } : undefined,
+        );
+
+        resumeStateRef.current.delete(job.id);
+        await updateDocumentContent(job.sourceDocId, result.content, result.toc, result.pages);
+
+        setJobs(prev => prev.map(j => j.id === job.id ? {
+          ...j, status: "completed" as const, progress: 100, pagesGenerated: result.pages,
+          currentStep: isFr ? "Renforcement terminé" : "Reinforcement complete",
+        } : j));
+
+        sendNotification(
+          isFr ? "Document renforcé !" : "Document reinforced!",
+          `${job.sourceTitle || job.topic} (${result.pages} pages)`
+        );
+        toast.success(isFr
+          ? `"${job.sourceTitle || job.topic}" renforcé (${result.pages} pages)`
+          : `"${job.sourceTitle || job.topic}" reinforced (${result.pages} pages)`);
+
+        setTimeout(() => setJobs(prev => prev.filter(j => j.id !== job.id)), 5000);
+        return;
+      }
+
 
       const { toc, content } = await generateDocumentChunked(
         job.topic, job.level, job.format, job.depth,
