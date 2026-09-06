@@ -61,6 +61,7 @@ interface GenerationContextType {
   activeJobs: GenerationJob[];
   queuedJobs: GenerationJob[];
   addJob: (job: Omit<GenerationJob, "id" | "status" | "progress" | "currentStep" | "pagesGenerated" | "partialContent" | "partialToc" | "startTime" | "estimatedTimeLeft" | "sectionsCompleted" | "totalSections" | "nextSectionIdx">) => Promise<string | null>;
+  addEnhanceJob: (input: EnhanceJobInput) => string | null;
   cancelJob: (id: string) => void;
   continueJob: (id: string) => void;
   abandonJob: (id: string) => void;
