@@ -61,6 +61,7 @@ interface GenerationContextType {
   activeJobs: GenerationJob[];
   queuedJobs: GenerationJob[];
   addJob: (job: Omit<GenerationJob, "id" | "status" | "progress" | "currentStep" | "pagesGenerated" | "partialContent" | "partialToc" | "startTime" | "estimatedTimeLeft" | "sectionsCompleted" | "totalSections" | "nextSectionIdx">) => Promise<string | null>;
+  addEnhanceJob: (input: EnhanceJobInput) => string | null;
   cancelJob: (id: string) => void;
   continueJob: (id: string) => void;
   abandonJob: (id: string) => void;
@@ -83,7 +84,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   const [showOverlay, setShowOverlay] = useState(false);
   const [overlayJobId, setOverlayJobId] = useState<string | null>(null);
   const { user, isGuest, profile, recordGeneration, getMaxConcurrent, canGenerate } = useAuth();
-  const { addDocument } = useDocuments();
+  const { addDocument, updateDocumentContent } = useDocuments();
   const { language } = useLanguage();
   const { sendNotification } = useNotifications();
   const processingRef = useRef<Set<string>>(new Set());
@@ -138,49 +139,94 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
       startTime: hasResume ? j.startTime : Date.now(),
     } : j));
 
+    // ---- Progress reporter shared by both job kinds ----
+    const report = (progress: number, step: string, partial: { toc?: string; content?: string; sectionIdx?: number; totalSections?: number }) => {
+      if (!onlineRef.current) throw new Error("OFFLINE");
+      if (pauseRequestedRef.current.has(job.id)) throw new Error("PAUSED_MANUAL");
+
+      if (partial.toc !== undefined || partial.content !== undefined) {
+        const prevState = resumeStateRef.current.get(job.id) || { toc: "", content: "", nextSectionIdx: 0 };
+        resumeStateRef.current.set(job.id, {
+          toc: partial.toc ?? prevState.toc,
+          content: partial.content ?? prevState.content,
+          nextSectionIdx: partial.sectionIdx ?? prevState.nextSectionIdx,
+        });
+      }
+
+      const estPages = Math.round((progress / 100) * job.targetPages);
+      setJobs(prev => prev.map(j => {
+        if (j.id !== job.id) return j;
+        const elapsed = (Date.now() - j.startTime) / 1000;
+        let eta = "";
+        if (progress > 5) {
+          const totalEst = (elapsed / progress) * 100;
+          const remaining = Math.max(0, totalEst - elapsed);
+          eta = remaining > 60 ? `~${Math.round(remaining / 60)} min` : `~${Math.round(remaining)}s`;
+        }
+        return {
+          ...j,
+          progress: Math.min(98, progress),
+          currentStep: step,
+          pagesGenerated: estPages,
+          estimatedTimeLeft: eta,
+          sectionsCompleted: partial.sectionIdx ?? j.sectionsCompleted,
+          totalSections: partial.totalSections ?? j.totalSections,
+          partialToc: partial.toc ?? j.partialToc,
+          partialContent: partial.content ?? j.partialContent,
+        };
+      }));
+    };
+
     try {
       const resumeState = resumeStateRef.current.get(job.id);
+
+      // ================= ENHANCEMENT JOB =================
+      if (job.kind === "enhance" && job.sourceDocId) {
+        const result = await enhanceDocument(
+          {
+            title: job.sourceTitle || job.topic,
+            topic: job.topic,
+            level: job.level,
+            format: job.format,
+            depth: job.depth,
+            content: job.sourceContent || "",
+            toc: job.sourceToc || "",
+            mode: job.enhanceMode || "both",
+            extraPages: job.extraPages ?? 0,
+            intensity: job.intensity ?? 2,
+            instructions: job.description,
+            language,
+          },
+          (progress, step, partial) => report(progress, step, partial),
+          resumeState ? { content: resumeState.content, nextSectionIdx: resumeState.nextSectionIdx } : undefined,
+        );
+
+        resumeStateRef.current.delete(job.id);
+        await updateDocumentContent(job.sourceDocId, result.content, result.toc, result.pages);
+
+        setJobs(prev => prev.map(j => j.id === job.id ? {
+          ...j, status: "completed" as const, progress: 100, pagesGenerated: result.pages,
+          currentStep: isFr ? "Renforcement terminé" : "Reinforcement complete",
+        } : j));
+
+        sendNotification(
+          isFr ? "Document renforcé !" : "Document reinforced!",
+          `${job.sourceTitle || job.topic} (${result.pages} pages)`
+        );
+        toast.success(isFr
+          ? `"${job.sourceTitle || job.topic}" renforcé (${result.pages} pages)`
+          : `"${job.sourceTitle || job.topic}" reinforced (${result.pages} pages)`);
+
+        setTimeout(() => setJobs(prev => prev.filter(j => j.id !== job.id)), 5000);
+        return;
+      }
+
 
       const { toc, content } = await generateDocumentChunked(
         job.topic, job.level, job.format, job.depth,
         job.targetPages, language, job.tableOfContents,
-        (progress, step, partial) => {
-          if (!onlineRef.current) throw new Error("OFFLINE");
-          if (pauseRequestedRef.current.has(job.id)) throw new Error("PAUSED_MANUAL");
+        report,
 
-          // Persist resume state continuously
-          if (partial.toc !== undefined || partial.content !== undefined) {
-            const prev = resumeStateRef.current.get(job.id) || { toc: "", content: "", nextSectionIdx: 0 };
-            resumeStateRef.current.set(job.id, {
-              toc: partial.toc ?? prev.toc,
-              content: partial.content ?? prev.content,
-              nextSectionIdx: partial.sectionIdx ?? prev.nextSectionIdx,
-            });
-          }
-
-          const estPages = Math.round((progress / 100) * job.targetPages);
-          setJobs(prev => prev.map(j => {
-            if (j.id !== job.id) return j;
-            const elapsed = (Date.now() - j.startTime) / 1000;
-            let eta = "";
-            if (progress > 5) {
-              const totalEst = (elapsed / progress) * 100;
-              const remaining = Math.max(0, totalEst - elapsed);
-              eta = remaining > 60 ? `~${Math.round(remaining / 60)} min` : `~${Math.round(remaining)}s`;
-            }
-            return {
-              ...j,
-              progress: Math.min(98, progress),
-              currentStep: step,
-              pagesGenerated: estPages,
-              estimatedTimeLeft: eta,
-              sectionsCompleted: partial.sectionIdx ?? j.sectionsCompleted,
-              totalSections: partial.totalSections ?? j.totalSections,
-              partialToc: partial.toc ?? j.partialToc,
-              partialContent: partial.content ?? j.partialContent,
-            };
-          }));
-        },
         job.referenceContent,
         resumeState,
         job.requiredThemes,
@@ -255,7 +301,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       processingRef.current.delete(job.id);
     }
-  }, [language, addDocument, recordGeneration, sendNotification]);
+  }, [language, addDocument, updateDocumentContent, recordGeneration, sendNotification]);
 
   // Smart scheduler: pick the queued job with the SHORTEST estimated time remaining
   // (smaller targetPages = shorter). Encyclopedias only run alone.
@@ -363,6 +409,60 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     return newJob.id;
   }, [jobs, user, isGuest, profile, canGenerate, getMaxConcurrent, language]);
 
+  // Enqueue an enhancement job (no moderation: content already exists and was moderated)
+  const addEnhanceJob = useCallback((input: EnhanceJobInput) => {
+    const isFr = language === "fr";
+    const totalActive = jobs.filter(j => ["generating", "queued", "moderating", "paused"].includes(j.status)).length;
+    const maxConcurrent = getMaxConcurrent();
+    if (totalActive >= maxConcurrent + MAX_QUEUE) {
+      toast.error(isFr ? "File d'attente pleine" : "Queue is full");
+      return null;
+    }
+    if (jobs.some(j => j.kind === "enhance" && j.sourceDocId === input.sourceDocId && ["generating", "queued", "paused"].includes(j.status))) {
+      toast.error(isFr ? "Ce document est déjà en cours de renforcement" : "This document is already being reinforced");
+      return null;
+    }
+
+    const basePages = estimatePageCount(input.sourceContent);
+    const factor = input.intensity >= 3 ? 2.2 : input.intensity === 2 ? 1.6 : 1.25;
+    const targetPages = Math.round(basePages * (input.enhanceMode === "continue" ? 1 : factor))
+      + (input.enhanceMode === "improve" ? 0 : Math.max(0, input.extraPages));
+
+    const newJob: GenerationJob = {
+      id: crypto.randomUUID(),
+      kind: "enhance",
+      topic: input.topic,
+      level: input.level,
+      format: input.format,
+      depth: input.depth,
+      targetPages,
+      tableOfContents: input.sourceToc,
+      description: input.description,
+      sourceDocId: input.sourceDocId,
+      sourceTitle: input.sourceTitle,
+      sourceContent: input.sourceContent,
+      sourceToc: input.sourceToc,
+      enhanceMode: input.enhanceMode,
+      extraPages: input.extraPages,
+      intensity: input.intensity,
+      status: "queued",
+      progress: 0,
+      currentStep: isFr ? "En attente de renforcement..." : "Waiting to reinforce...",
+      pagesGenerated: basePages,
+      partialContent: "",
+      partialToc: input.sourceToc,
+      startTime: Date.now(),
+      estimatedTimeLeft: "",
+      sectionsCompleted: 0,
+      totalSections: 0,
+      nextSectionIdx: 0,
+    };
+
+    setJobs(prev => [...prev, newJob]);
+    toast.success(isFr ? "Renforcement lancé en arrière-plan" : "Reinforcement started in background");
+    return newJob.id;
+  }, [jobs, getMaxConcurrent, language]);
+
   const cancelJob = useCallback((id: string) => {
     resumeStateRef.current.delete(id);
     setJobs(prev => prev.filter(j => j.id !== id));
@@ -400,7 +500,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <GenerationContext.Provider value={{
-      jobs, activeJobs, queuedJobs, addJob, cancelJob, continueJob, abandonJob,
+      jobs, activeJobs, queuedJobs, addJob, addEnhanceJob, cancelJob, continueJob, abandonJob,
       pauseJob, resumeJob, pausedJobs,
       showOverlay, setShowOverlay, overlayJobId, setOverlayJobId, hasActiveGenerations,
     }}>

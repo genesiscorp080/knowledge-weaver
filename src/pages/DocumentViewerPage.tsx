@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, MessageCircle, FileText, Send, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, MessageCircle, FileText, Send, Loader2, Sparkles } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments, ChatMessage } from "@/contexts/DocumentContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { callAI, buildChatSystemPrompt, buildImportedDocChatPrompt, generatePDF } from "@/lib/ai";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
+import EnhanceDialog, { EnhanceTarget } from "@/components/EnhanceDialog";
+
 
 const DocumentViewerPage = () => {
   const { id } = useParams();
@@ -23,6 +25,7 @@ const DocumentViewerPage = () => {
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [highlights, setHighlights] = useState<{ id: string; text: string; pageIndex: number; color: string }[]>([]);
+  const [enhanceOpen, setEnhanceOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -117,6 +120,15 @@ const DocumentViewerPage = () => {
             <ArrowLeft size={20} className="text-foreground" />
           </button>
           <h1 className="font-display text-sm font-semibold truncate flex-1">{doc.title}</h1>
+          {!isImported && (
+            <button
+              onClick={() => setEnhanceOpen(true)}
+              title={language === "fr" ? "Renforcer / Continuer" : "Reinforce / Continue"}
+              className="p-2 rounded-lg hover:bg-secondary transition-colors"
+            >
+              <Sparkles size={18} className="text-primary" />
+            </button>
+          )}
           <button onClick={() => generatePDF(doc.title, doc.content)} className="p-2 rounded-lg hover:bg-secondary transition-colors">
             <Download size={18} className="text-primary" />
           </button>

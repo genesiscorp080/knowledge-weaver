@@ -4,6 +4,7 @@ import { Search, BookOpen, Check, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import DocMenu from "@/components/DocMenu";
+import EnhanceDialog, { EnhanceTarget } from "@/components/EnhanceDialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments } from "@/contexts/DocumentContext";
 import { generatePDF } from "@/lib/ai";
@@ -17,7 +18,9 @@ const LibraryPage = () => {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [enhanceTarget, setEnhanceTarget] = useState<EnhanceTarget | null>(null);
   const isFr = language === "fr";
+
 
   const filteredDocs = documents.filter(d =>
     d.title.toLowerCase().includes(search.toLowerCase())
@@ -79,6 +82,16 @@ const LibraryPage = () => {
                         onDelete={() => deleteDocument(doc.id)}
                         onDownload={() => generatePDF(doc.title, doc.content)}
                         onEdit={() => navigate(`/document/${doc.id}`)}
+                        onEnhance={() => setEnhanceTarget({
+                          id: doc.id,
+                          title: doc.title,
+                          topic: (doc as any).topic || doc.title,
+                          level: doc.level,
+                          format: doc.format,
+                          depth: (doc as any).depth || "",
+                          content: doc.content,
+                          tableOfContents: (doc as any).tableOfContents || "",
+                        })}
                       />
                     </div>
                   </div>
@@ -98,6 +111,8 @@ const LibraryPage = () => {
           )}
         </div>
       </div>
+
+      <EnhanceDialog open={!!enhanceTarget} onClose={() => setEnhanceTarget(null)} doc={enhanceTarget} />
     </div>
   );
 };
