@@ -111,6 +111,8 @@ const LibraryPage = () => {
           )}
         </div>
       </div>
+
+      <EnhanceDialog open={!!enhanceTarget} onClose={() => setEnhanceTarget(null)} doc={enhanceTarget} />
     </div>
   );
 };
