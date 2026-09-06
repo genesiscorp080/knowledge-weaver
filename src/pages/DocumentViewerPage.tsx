@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, MessageCircle, FileText, Send, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, MessageCircle, FileText, Send, Loader2, Sparkles } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments, ChatMessage } from "@/contexts/DocumentContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { callAI, buildChatSystemPrompt, buildImportedDocChatPrompt, generatePDF } from "@/lib/ai";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
+import EnhanceDialog, { EnhanceTarget } from "@/components/EnhanceDialog";
+
 
 const DocumentViewerPage = () => {
   const { id } = useParams();
