@@ -301,7 +301,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       processingRef.current.delete(job.id);
     }
-  }, [language, addDocument, recordGeneration, sendNotification]);
+  }, [language, addDocument, updateDocumentContent, recordGeneration, sendNotification]);
 
   // Smart scheduler: pick the queued job with the SHORTEST estimated time remaining
   // (smaller targetPages = shorter). Encyclopedias only run alone.
