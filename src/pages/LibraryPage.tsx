@@ -82,6 +82,16 @@ const LibraryPage = () => {
                         onDelete={() => deleteDocument(doc.id)}
                         onDownload={() => generatePDF(doc.title, doc.content)}
                         onEdit={() => navigate(`/document/${doc.id}`)}
+                        onEnhance={() => setEnhanceTarget({
+                          id: doc.id,
+                          title: doc.title,
+                          topic: (doc as any).topic || doc.title,
+                          level: doc.level,
+                          format: doc.format,
+                          depth: (doc as any).depth || "",
+                          content: doc.content,
+                          tableOfContents: (doc as any).tableOfContents || "",
+                        })}
                       />
                     </div>
                   </div>
