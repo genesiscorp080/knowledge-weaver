@@ -225,43 +225,8 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
       const { toc, content } = await generateDocumentChunked(
         job.topic, job.level, job.format, job.depth,
         job.targetPages, language, job.tableOfContents,
-        (progress, step, partial) => {
-          if (!onlineRef.current) throw new Error("OFFLINE");
-          if (pauseRequestedRef.current.has(job.id)) throw new Error("PAUSED_MANUAL");
+        report,
 
-          // Persist resume state continuously
-          if (partial.toc !== undefined || partial.content !== undefined) {
-            const prev = resumeStateRef.current.get(job.id) || { toc: "", content: "", nextSectionIdx: 0 };
-            resumeStateRef.current.set(job.id, {
-              toc: partial.toc ?? prev.toc,
-              content: partial.content ?? prev.content,
-              nextSectionIdx: partial.sectionIdx ?? prev.nextSectionIdx,
-            });
-          }
-
-          const estPages = Math.round((progress / 100) * job.targetPages);
-          setJobs(prev => prev.map(j => {
-            if (j.id !== job.id) return j;
-            const elapsed = (Date.now() - j.startTime) / 1000;
-            let eta = "";
-            if (progress > 5) {
-              const totalEst = (elapsed / progress) * 100;
-              const remaining = Math.max(0, totalEst - elapsed);
-              eta = remaining > 60 ? `~${Math.round(remaining / 60)} min` : `~${Math.round(remaining)}s`;
-            }
-            return {
-              ...j,
-              progress: Math.min(98, progress),
-              currentStep: step,
-              pagesGenerated: estPages,
-              estimatedTimeLeft: eta,
-              sectionsCompleted: partial.sectionIdx ?? j.sectionsCompleted,
-              totalSections: partial.totalSections ?? j.totalSections,
-              partialToc: partial.toc ?? j.partialToc,
-              partialContent: partial.content ?? j.partialContent,
-            };
-          }));
-        },
         job.referenceContent,
         resumeState,
         job.requiredThemes,
