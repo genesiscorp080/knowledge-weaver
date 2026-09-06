@@ -409,6 +409,60 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     return newJob.id;
   }, [jobs, user, isGuest, profile, canGenerate, getMaxConcurrent, language]);
 
+  // Enqueue an enhancement job (no moderation: content already exists and was moderated)
+  const addEnhanceJob = useCallback((input: EnhanceJobInput) => {
+    const isFr = language === "fr";
+    const totalActive = jobs.filter(j => ["generating", "queued", "moderating", "paused"].includes(j.status)).length;
+    const maxConcurrent = getMaxConcurrent();
+    if (totalActive >= maxConcurrent + MAX_QUEUE) {
+      toast.error(isFr ? "File d'attente pleine" : "Queue is full");
+      return null;
+    }
+    if (jobs.some(j => j.kind === "enhance" && j.sourceDocId === input.sourceDocId && ["generating", "queued", "paused"].includes(j.status))) {
+      toast.error(isFr ? "Ce document est déjà en cours de renforcement" : "This document is already being reinforced");
+      return null;
+    }
+
+    const basePages = estimatePageCount(input.sourceContent);
+    const factor = input.intensity >= 3 ? 2.2 : input.intensity === 2 ? 1.6 : 1.25;
+    const targetPages = Math.round(basePages * (input.enhanceMode === "continue" ? 1 : factor))
+      + (input.enhanceMode === "improve" ? 0 : Math.max(0, input.extraPages));
+
+    const newJob: GenerationJob = {
+      id: crypto.randomUUID(),
+      kind: "enhance",
+      topic: input.topic,
+      level: input.level,
+      format: input.format,
+      depth: input.depth,
+      targetPages,
+      tableOfContents: input.sourceToc,
+      description: input.description,
+      sourceDocId: input.sourceDocId,
+      sourceTitle: input.sourceTitle,
+      sourceContent: input.sourceContent,
+      sourceToc: input.sourceToc,
+      enhanceMode: input.enhanceMode,
+      extraPages: input.extraPages,
+      intensity: input.intensity,
+      status: "queued",
+      progress: 0,
+      currentStep: isFr ? "En attente de renforcement..." : "Waiting to reinforce...",
+      pagesGenerated: basePages,
+      partialContent: "",
+      partialToc: input.sourceToc,
+      startTime: Date.now(),
+      estimatedTimeLeft: "",
+      sectionsCompleted: 0,
+      totalSections: 0,
+      nextSectionIdx: 0,
+    };
+
+    setJobs(prev => [...prev, newJob]);
+    toast.success(isFr ? "Renforcement lancé en arrière-plan" : "Reinforcement started in background");
+    return newJob.id;
+  }, [jobs, getMaxConcurrent, language]);
+
   const cancelJob = useCallback((id: string) => {
     resumeStateRef.current.delete(id);
     setJobs(prev => prev.filter(j => j.id !== id));
