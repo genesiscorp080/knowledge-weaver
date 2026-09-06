@@ -500,7 +500,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <GenerationContext.Provider value={{
-      jobs, activeJobs, queuedJobs, addJob, cancelJob, continueJob, abandonJob,
+      jobs, activeJobs, queuedJobs, addJob, addEnhanceJob, cancelJob, continueJob, abandonJob,
       pauseJob, resumeJob, pausedJobs,
       showOverlay, setShowOverlay, overlayJobId, setOverlayJobId, hasActiveGenerations,
     }}>
