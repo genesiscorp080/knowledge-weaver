@@ -120,6 +120,15 @@ const DocumentViewerPage = () => {
             <ArrowLeft size={20} className="text-foreground" />
           </button>
           <h1 className="font-display text-sm font-semibold truncate flex-1">{doc.title}</h1>
+          {!isImported && (
+            <button
+              onClick={() => setEnhanceOpen(true)}
+              title={language === "fr" ? "Renforcer / Continuer" : "Reinforce / Continue"}
+              className="p-2 rounded-lg hover:bg-secondary transition-colors"
+            >
+              <Sparkles size={18} className="text-primary" />
+            </button>
+          )}
           <button onClick={() => generatePDF(doc.title, doc.content)} className="p-2 rounded-lg hover:bg-secondary transition-colors">
             <Download size={18} className="text-primary" />
           </button>
