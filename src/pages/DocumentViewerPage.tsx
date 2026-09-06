@@ -25,6 +25,7 @@ const DocumentViewerPage = () => {
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [highlights, setHighlights] = useState<{ id: string; text: string; pageIndex: number; color: string }[]>([]);
+  const [enhanceOpen, setEnhanceOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
