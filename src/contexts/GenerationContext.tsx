@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDocuments } from "@/contexts/DocumentContext";
-import { generateDocumentChunked, enhanceDocument, estimatePageCount, checkTopicAppropriate, RequiredTheme, EnhanceMode } from "@/lib/ai";
+import { generateDocumentChunked, enhanceDocument, estimatePageCount, checkTopicAppropriate, generatePDF, stripPageMarkers, RequiredTheme, EnhanceMode } from "@/lib/ai";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { toast } from "sonner";
@@ -38,7 +38,12 @@ export interface GenerationJob {
   enhanceMode?: EnhanceMode;
   extraPages?: number;
   intensity?: number;
+  // Draft explicitly kept aside by the user ("télécharger et garder en mémoire")
+  keptInMemory?: boolean;
 }
+
+const SAVED_JOBS_PREFIX = "prisca-saved-jobs-";
+const PENDING_STATUSES = ["queued", "moderating", "generating", "paused"] as const;
 
 export interface EnhanceJobInput {
   sourceDocId: string;
@@ -67,7 +72,13 @@ interface GenerationContextType {
   abandonJob: (id: string) => void;
   pauseJob: (id: string) => void;
   resumeJob: (id: string) => void;
+  /** Download the document at its current (partial) state as a PDF. */
+  downloadJobDraft: (id: string) => void;
+  /** Stop the job but keep it in memory (visible in the library) to continue later. */
+  keepJobForLater: (id: string) => void;
   pausedJobs: GenerationJob[];
+  /** Every job not yet finished (queued, generating, paused, kept). */
+  pendingJobs: GenerationJob[];
   showOverlay: boolean;
   setShowOverlay: (v: boolean) => void;
   overlayJobId: string | null;
@@ -97,7 +108,58 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
   const activeJobs = jobs.filter(j => j.status === "generating");
   const queuedJobs = jobs.filter(j => j.status === "queued" || j.status === "moderating");
   const pausedJobs = jobs.filter(j => j.status === "paused");
+  const pendingJobs = jobs.filter(j => (PENDING_STATUSES as readonly string[]).includes(j.status));
   const hasActiveGenerations = activeJobs.length > 0 || queuedJobs.length > 0;
+
+  // ---- Persistence of unfinished jobs (survive a reload / app restart) ----
+  const storageKey = `${SAVED_JOBS_PREFIX}${user?.id || (isGuest ? "guest" : "anon")}`;
+  const loadedKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (loadedKeyRef.current === storageKey) return;
+    loadedKeyRef.current = storageKey;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const saved: GenerationJob[] = JSON.parse(raw);
+      if (!Array.isArray(saved) || saved.length === 0) return;
+      const isFr = language === "fr";
+      const restored = saved.map(j => {
+        resumeStateRef.current.set(j.id, { toc: j.partialToc || "", content: j.partialContent || "", nextSectionIdx: j.nextSectionIdx || 0 });
+        return {
+          ...j,
+          status: "paused" as const,
+          keptInMemory: true,
+          estimatedTimeLeft: "",
+          currentStep: isFr ? "Conservé en mémoire — reprenez quand vous voulez" : "Kept in memory — resume whenever you want",
+        };
+      });
+      setJobs(prev => [...prev.filter(p => !restored.some(r => r.id === p.id)), ...restored]);
+    } catch (err) {
+      console.warn("Could not restore saved generations:", err);
+    }
+  }, [storageKey, language]);
+
+  useEffect(() => {
+    if (loadedKeyRef.current !== storageKey) return;
+    try {
+      const toSave = jobs
+        .filter(j => (PENDING_STATUSES as readonly string[]).includes(j.status))
+        .map(j => {
+          const rs = resumeStateRef.current.get(j.id);
+          return {
+            ...j,
+            partialToc: rs?.toc ?? j.partialToc,
+            partialContent: rs?.content ?? j.partialContent,
+            nextSectionIdx: rs?.nextSectionIdx ?? j.nextSectionIdx,
+          };
+        });
+      if (toSave.length === 0) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, JSON.stringify(toSave));
+    } catch (err) {
+      console.warn("Could not save generations (storage full?):", err);
+    }
+  }, [jobs, storageKey]);
 
   // Online/offline handlers — pause active jobs when offline
   useEffect(() => {
@@ -170,6 +232,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
           pagesGenerated: estPages,
           estimatedTimeLeft: eta,
           sectionsCompleted: partial.sectionIdx ?? j.sectionsCompleted,
+          nextSectionIdx: partial.sectionIdx ?? j.nextSectionIdx,
           totalSections: partial.totalSections ?? j.totalSections,
           partialToc: partial.toc ?? j.partialToc,
           partialContent: partial.content ?? j.partialContent,
@@ -236,7 +299,8 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
       // Clear resume state on success
       resumeStateRef.current.delete(job.id);
 
-      const fullContent = `# ${job.topic}\n\n## ${isFr ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${content}`;
+      const cleanToc = stripPageMarkers(toc);
+      const fullContent = `# ${job.topic}\n\n## ${isFr ? "Table des matières" : "Table of Contents"}\n\n${cleanToc}\n\n---\n\n${content}`;
       const title = job.topic.length > 60 ? job.topic.slice(0, 57) + "..." : job.topic;
       const realPages = estimatePageCount(fullContent);
 
@@ -249,7 +313,7 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
         depth: job.depth,
         pages: realPages,
         content: fullContent,
-        tableOfContents: toc,
+        tableOfContents: cleanToc,
         createdAt: new Date(),
         chatHistory: [],
       };
@@ -494,14 +558,49 @@ export const GenerationProvider = ({ children }: { children: ReactNode }) => {
     setJobs(prev => prev.map(j => j.id === id && j.status === "paused" ? {
       ...j,
       status: "queued" as const,
+      keptInMemory: false,
       currentStep: isFr ? "Reprise..." : "Resuming...",
     } : j));
+  }, [language]);
+
+  const downloadJobDraft = useCallback((id: string) => {
+    const isFr = language === "fr";
+    const job = jobs.find(j => j.id === id);
+    if (!job) return;
+    const rs = resumeStateRef.current.get(id);
+    const body = rs?.content ?? job.partialContent;
+    const toc = stripPageMarkers(rs?.toc ?? job.partialToc);
+    if (!body || body.trim().length === 0) {
+      toast.error(isFr ? "Rien à télécharger pour l'instant : aucune page n'est encore rédigée" : "Nothing to download yet: no page has been written");
+      return;
+    }
+    const baseTitle = job.kind === "enhance" ? (job.sourceTitle || job.topic) : job.topic;
+    const title = `${baseTitle.slice(0, 55)} (${isFr ? "brouillon" : "draft"})`;
+    const content = job.kind === "enhance"
+      ? body
+      : `# ${job.topic}\n\n## ${isFr ? "Table des matières" : "Table of Contents"}\n\n${toc}\n\n---\n\n${body}`;
+    generatePDF(title, content);
+    toast.success(isFr ? "Téléchargement du brouillon lancé" : "Draft download started");
+  }, [jobs, language]);
+
+  const keepJobForLater = useCallback((id: string) => {
+    const isFr = language === "fr";
+    const step = isFr ? "Conservé en mémoire — reprenez quand vous voulez" : "Kept in memory — resume whenever you want";
+    setJobs(prev => prev.map(j => {
+      if (j.id !== id) return j;
+      if (j.status === "generating") {
+        pauseRequestedRef.current.add(id);
+        return { ...j, keptInMemory: true, currentStep: isFr ? "Arrêt en cours..." : "Stopping..." };
+      }
+      return { ...j, status: "paused" as const, keptInMemory: true, currentStep: step };
+    }));
+    toast.success(isFr ? "Génération conservée en mémoire (visible dans la bibliothèque)" : "Generation kept in memory (visible in the library)");
   }, [language]);
 
   return (
     <GenerationContext.Provider value={{
       jobs, activeJobs, queuedJobs, addJob, addEnhanceJob, cancelJob, continueJob, abandonJob,
-      pauseJob, resumeJob, pausedJobs,
+      pauseJob, resumeJob, pausedJobs, pendingJobs, downloadJobDraft, keepJobForLater,
       showOverlay, setShowOverlay, overlayJobId, setOverlayJobId, hasActiveGenerations,
     }}>
       {children}
