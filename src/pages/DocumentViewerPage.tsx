@@ -193,6 +193,23 @@ const DocumentViewerPage = () => {
           </div>
         )}
       </div>
+
+      {!isImported && (
+        <EnhanceDialog
+          open={enhanceOpen}
+          onClose={() => setEnhanceOpen(false)}
+          doc={{
+            id: doc.id,
+            title: doc.title,
+            topic: (doc as any).topic || doc.title,
+            level: (doc as any).level || "",
+            format: (doc as any).format || "",
+            depth: (doc as any).depth || "",
+            content: doc.content,
+            tableOfContents: (doc as any).tableOfContents || "",
+          }}
+        />
+      )}
     </div>
   );
 };
