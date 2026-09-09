@@ -831,6 +831,55 @@ export async function generateDocumentChunked(
   let fullContent = resumeFrom?.content || "";
   const startIdx = resumeFrom?.nextSectionIdx || 0;
 
+  // ---- Variable page allocation: sections must NOT all be the same length. ----
+  // Ask the model to weight each writing unit by the intrinsic richness of its
+  // subject, then normalise so the weighted sum equals exactly targetPages.
+  const uniform = Math.max(1, Math.round(targetPages / totalSections));
+  let sectionPages: number[] = Array.from({ length: totalSections }, () => uniform);
+  if (totalSections > 1 && totalSections <= 250) {
+    try {
+      onProgress(11, isFr ? "Répartition des pages entre les sections..." : "Allocating pages across sections...", { toc });
+      const weightPrompt = `You are planning the page budget of a ${targetPages}-page document about "${topic}".
+
+Below are the ${totalSections} writing units in order. Assign each a WEIGHT from 1 to 10 reflecting how much material its subject genuinely deserves (1 = narrow/marginal, 10 = central, dense, unavoidable). Weights MUST vary: some units deserve several times more pages than others. Do NOT give everything the same weight.
+
+Units:
+${sections.map((s, idx) => `${idx + 1}. ${s.split("\n")[0].slice(0, 160)}`).join("\n")}
+
+Answer with EXACTLY ${totalSections} lines, nothing else, each line formatted "<unit number>:<weight>".`;
+      const raw = await callAI({
+        action: "plan_page_budget",
+        messages: [{ role: "user", content: weightPrompt }],
+        systemPrompt: "You are a meticulous editorial planner. Answer with numbers only.",
+        maxTokens: 4000,
+        temperature: 0.2,
+      });
+      const weights: number[] = [];
+      raw.split("\n").forEach(line => {
+        const m = line.match(/(\d+)\s*[:\-–.]\s*(\d+(?:\.\d+)?)/);
+        if (m) weights.push(Math.min(10, Math.max(1, parseFloat(m[2]))));
+      });
+      if (weights.length >= Math.ceil(totalSections * 0.6)) {
+        while (weights.length < totalSections) weights.push(3);
+        const sum = weights.slice(0, totalSections).reduce((a, b) => a + b, 0);
+        const alloc = weights.slice(0, totalSections).map(w => Math.max(1, Math.round((w / sum) * targetPages)));
+        // Correct rounding drift so the total lands exactly on target
+        let drift = targetPages - alloc.reduce((a, b) => a + b, 0);
+        let guard = 0;
+        while (drift !== 0 && guard < 10000) {
+          guard++;
+          const idx = guard % totalSections;
+          if (drift > 0) { alloc[idx]++; drift--; }
+          else if (alloc[idx] > 1) { alloc[idx]--; drift++; }
+        }
+        sectionPages = alloc;
+      }
+    } catch (err) {
+      console.warn("Page budget planning failed, falling back to uniform:", err);
+    }
+  }
+
+
   for (let i = startIdx; i < totalSections; i++) {
     const sectionToc = sections[i];
     const progress = 10 + ((i / totalSections) * 85);
