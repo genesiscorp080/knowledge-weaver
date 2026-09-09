@@ -360,41 +360,82 @@ Document content:
 ${documentContent.slice(0, 12000)}`;
 }
 
+/** Removes "(~12 pages)" / "— 12 p." style volume markers used internally in outlines. */
+export function stripPageMarkers(text: string): string {
+  if (!text) return "";
+  return text
+    .split("\n")
+    .map(line =>
+      line
+        .replace(/[\(\[\{][^()\[\]{}]*?\d+\s*(?:pages?|pp?\.?|p)\b[^()\[\]{}]*?[\)\]\}]/gi, "")
+        .replace(/\s*[—–-]{1,2}\s*[≈~]?\s*\d+\s*(?:pages?|pp?\.?|p)\b\.?\s*$/gi, "")
+        .replace(/\s*[≈~]\s*\d+\s*(?:pages?|pp?\.?)\s*$/gi, "")
+        .replace(/[ \t]{2,}/g, " ")
+        .trimEnd()
+    )
+    .join("\n");
+}
+
 export function generatePDF(title: string, content: string): void {
-  import("jspdf").then(({ jsPDF }) => {
+  Promise.all([import("jspdf"), import("jspdf-autotable")]).then(([{ jsPDF }, autoTableMod]) => {
+    const autoTable: any = (autoTableMod as any).default || (autoTableMod as any);
     const doc = new jsPDF();
     const margin = 25;
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const contentWidth = pageWidth - margin * 2;
-    const lineHeight = 7;
-    let pageNum = 1;
+    const bottomLimit = pageHeight - 28;
+    const lineHeight = 6.6;
+    const teal: [number, number, number] = [0, 128, 128];
 
-    const addPageNumber = () => {
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(150, 150, 150);
-      doc.text(`${pageNum}`, pageWidth / 2, pageHeight - 12, { align: "center" });
-      doc.setTextColor(0, 0, 0);
+    const inline = (s: string) =>
+      s
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/\*(.+?)\*/g, "$1")
+        .replace(/`(.+?)`/g, "$1")
+        .replace(/~~(.+?)~~/g, "$1");
+
+    /** Break tokens too long to fit on one line (long URLs, DOIs) so nothing runs off the margin. */
+    const breakLongWords = (text: string, width: number) => {
+      const words = text.split(/(\s+)/);
+      return words
+        .map(w => {
+          if (!w.trim() || doc.getTextWidth(w) <= width) return w;
+          let out = "";
+          let buf = "";
+          for (const ch of w) {
+            if (doc.getTextWidth(buf + ch) > width - 2) {
+              out += buf + "\u200B ";
+              buf = ch;
+            } else buf += ch;
+          }
+          return out + buf;
+        })
+        .join("");
     };
 
-    const addNewPage = () => {
-      addPageNumber();
+    const wrap = (text: string, width: number): string[] =>
+      doc.splitTextToSize(breakLongWords(text, width), width).map((l: string) => l.replace(/\u200B/g, ""));
+
+    let y = margin + 10;
+    const newPage = () => {
       doc.addPage();
-      pageNum++;
-      return margin + 10;
+      y = margin + 10;
+    };
+    const need = (h: number) => {
+      if (y + h > bottomLimit) newPage();
     };
 
-    // Title page
+    // ---------- Title page ----------
     doc.setFontSize(26);
     doc.setFont("helvetica", "bold");
-    const titleLines = doc.splitTextToSize(title, contentWidth);
+    const titleLines = wrap(title, contentWidth);
     const titleY = pageHeight / 3;
-    titleLines.forEach((line: string, i: number) => {
-      doc.text(line, pageWidth / 2, titleY + i * 12, { align: "center" });
-    });
+    titleLines.forEach((line, i) => doc.text(line, pageWidth / 2, titleY + i * 12, { align: "center" }));
     const lastTitleY = titleY + (titleLines.length - 1) * 12 + 4;
-    doc.setDrawColor(0, 128, 128);
+    doc.setDrawColor(...teal);
     doc.setLineWidth(0.8);
     doc.line(margin + 20, lastTitleY, pageWidth - margin - 20, lastTitleY);
     doc.setFontSize(10);
@@ -402,131 +443,170 @@ export function generatePDF(title: string, content: string): void {
     doc.setTextColor(100, 100, 100);
     doc.text("Prisca · Généré par IA", pageWidth / 2, lastTitleY + 15, { align: "center" });
     doc.setTextColor(0, 0, 0);
-    addPageNumber();
-    doc.addPage();
-    pageNum++;
+    newPage();
 
-    let y = margin + 10;
+    const heading = (text: string, size: number, font: string, centered: boolean, rule: number) => {
+      doc.setFontSize(size);
+      doc.setFont("helvetica", font);
+      const lines = wrap(text, contentWidth);
+      const blockH = lines.length * (size * 0.45) + 8;
+      need(blockH);
+      y += size * 0.35;
+      lines.forEach((line, i) => {
+        doc.text(line, centered ? pageWidth / 2 : margin, y + i * (size * 0.45), centered ? { align: "center" } : undefined);
+      });
+      const lastY = y + (lines.length - 1) * (size * 0.45);
+      if (rule > 0) {
+        const w = centered ? Math.min(doc.getTextWidth(lines[lines.length - 1]), contentWidth) : Math.min(doc.getTextWidth(lines[lines.length - 1]), contentWidth);
+        doc.setDrawColor(...teal);
+        doc.setLineWidth(rule);
+        const x1 = centered ? pageWidth / 2 - w / 2 : margin;
+        doc.line(x1, lastY + 2, x1 + w, lastY + 2);
+      }
+      y = lastY + lineHeight + size * 0.25;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+    };
+
+    const paragraph = (raw: string) => {
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "normal");
+      const bulletMatch = raw.match(/^([-*•]|\d+[.)])\s+/);
+      let text = inline(raw);
+      let indent = 0;
+      if (bulletMatch) {
+        text = text.replace(/^([-*]|\d+[.)])\s+/, m => (/^[-*]/.test(m) ? "• " : m));
+        indent = 5;
+      }
+      const width = contentWidth - indent;
+      const lines = wrap(text, width);
+      for (let li = 0; li < lines.length; li++) {
+        const sLine = lines[li];
+        need(lineHeight);
+        const isLast = li === lines.length - 1;
+        const words = sLine.split(/\s+/).filter(Boolean);
+        const x = margin + (li === 0 ? 0 : indent);
+        const w = contentWidth - (li === 0 ? 0 : indent);
+        if (!bulletMatch && !isLast && words.length > 2) {
+          const wordsWidth = words.reduce((s, wd) => s + doc.getTextWidth(wd), 0);
+          const space = Math.min((w - wordsWidth) / (words.length - 1), doc.getTextWidth(" ") * 3.2);
+          let cx = x;
+          for (const wd of words) {
+            doc.text(wd, cx, y);
+            cx += doc.getTextWidth(wd) + space;
+          }
+        } else {
+          doc.text(sLine, x, y);
+        }
+        y += lineHeight;
+      }
+      y += 2;
+    };
+
     const lines = content.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
 
-    for (const rawLine of lines) {
-      const trimmed = rawLine.trim();
+      // ---------- Markdown tables ----------
+      if (/^\|.*\|$/.test(trimmed)) {
+        const block: string[] = [];
+        while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
+          block.push(lines[i].trim());
+          i++;
+        }
+        i--;
+        const rows = block
+          .filter(r => !/^\|[\s:|-]+\|$/.test(r))
+          .map(r => r.replace(/^\||\|$/g, "").split("|").map(c => inline(c.trim())));
+        if (rows.length) {
+          const head = [rows[0]];
+          const body = rows.slice(1);
+          autoTable(doc, {
+            head,
+            body,
+            startY: y + 2,
+            margin: { left: margin, right: margin, bottom: 28 },
+            styles: { font: "helvetica", fontSize: 9, cellPadding: 2, overflow: "linebreak", valign: "top", textColor: [30, 30, 30] },
+            headStyles: { fillColor: teal, textColor: [255, 255, 255], fontStyle: "bold" },
+            alternateRowStyles: { fillColor: [244, 248, 248] },
+            theme: "grid",
+          });
+          y = ((doc as any).lastAutoTable?.finalY ?? y) + 6;
+        }
+        continue;
+      }
 
-      if (trimmed.startsWith("######")) {
-        if (y > pageHeight - 40) y = addNewPage();
+      // ---------- Block quotes ----------
+      if (trimmed.startsWith(">")) {
+        const text = inline(trimmed.replace(/^>\s?/, ""));
+        doc.setFontSize(10.5);
+        doc.setFont("helvetica", "italic");
+        const wrapped = wrap(text, contentWidth - 8);
+        need(wrapped.length * lineHeight);
+        const startY = y;
+        wrapped.forEach(l => {
+          doc.text(l, margin + 8, y);
+          y += lineHeight;
+        });
+        doc.setDrawColor(...teal);
+        doc.setLineWidth(1.2);
+        doc.line(margin + 2, startY - 4, margin + 2, y - 4);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
         y += 3;
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "bold");
-        doc.text(trimmed.replace(/^#{1,6}\s*/, ""), margin, y);
-        y += lineHeight + 1;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(11);
-      } else if (trimmed.startsWith("#####")) {
-        if (y > pageHeight - 40) y = addNewPage();
+        continue;
+      }
+
+      const h = trimmed.match(/^(#{1,6})\s*(.+)$/);
+      if (h) {
+        const level = h[1].length;
+        const text = h[2].trim();
+        if (level === 1) {
+          if (y > margin + 20) newPage();
+          heading(text, 18, "bold", true, 0.7);
+        } else if (level === 2) heading(text, 14, "bold", true, 0.5);
+        else if (level === 3) heading(text, 12, "bold", false, 0.3);
+        else if (level === 4) heading(text, 11, "bolditalic", false, 0);
+        else heading(text, 10.5, "bold", false, 0);
+        continue;
+      }
+
+      if (/^(---|\*\*\*|___)$/.test(trimmed)) {
+        need(8);
         y += 4;
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "bold");
-        doc.text(trimmed.replace(/^#{1,6}\s*/, ""), margin, y);
-        y += lineHeight + 1;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(11);
-      } else if (trimmed.startsWith("####")) {
-        if (y > pageHeight - 40) y = addNewPage();
-        y += 5;
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "bolditalic");
-        doc.text(trimmed.replace(/^#{1,6}\s*/, ""), margin, y);
-        y += lineHeight + 2;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(11);
-      } else if (trimmed.startsWith("###")) {
-        if (y > pageHeight - 40) y = addNewPage();
-        y += 6;
-        doc.setFontSize(12);
-        doc.setFont("helvetica", "bold");
-        const text = trimmed.replace(/^#{1,6}\s*/, "");
-        doc.text(text, margin, y);
-        const tw = doc.getTextWidth(text);
-        doc.setDrawColor(0, 128, 128);
-        doc.setLineWidth(0.3);
-        doc.line(margin, y + 1.5, margin + tw, y + 1.5);
-        y += lineHeight + 3;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(11);
-      } else if (trimmed.startsWith("##")) {
-        if (y > pageHeight - 45) y = addNewPage();
-        y += 8;
-        doc.setFontSize(14);
-        doc.setFont("helvetica", "bold");
-        const text = trimmed.replace(/^#{1,6}\s*/, "");
-        doc.text(text, pageWidth / 2, y, { align: "center" });
-        const tw = doc.getTextWidth(text);
-        doc.setDrawColor(0, 128, 128);
-        doc.setLineWidth(0.5);
-        doc.line(pageWidth / 2 - tw / 2, y + 2, pageWidth / 2 + tw / 2, y + 2);
-        y += lineHeight + 4;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(11);
-      } else if (trimmed.startsWith("#")) {
-        if (y > pageHeight - 50) y = addNewPage();
-        y += 10;
-        doc.setFontSize(18);
-        doc.setFont("helvetica", "bold");
-        const text = trimmed.replace(/^#{1,6}\s*/, "");
-        doc.text(text, pageWidth / 2, y, { align: "center" });
-        const tw = doc.getTextWidth(text);
-        doc.setDrawColor(0, 128, 128);
-        doc.setLineWidth(0.7);
-        doc.line(pageWidth / 2 - tw / 2, y + 3, pageWidth / 2 + tw / 2, y + 3);
-        y += lineHeight + 6;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(11);
-      } else if (trimmed.startsWith("---") || trimmed.startsWith("***")) {
-        y += 4;
-        doc.setDrawColor(200, 200, 200);
+        doc.setDrawColor(205, 205, 205);
         doc.setLineWidth(0.3);
         doc.line(margin, y, pageWidth - margin, y);
-        y += 4;
-      } else if (trimmed === "") {
-        y += 4;
-      } else {
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "normal");
-        let text = trimmed
-          .replace(/\*\*(.+?)\*\*/g, "$1")
-          .replace(/\*(.+?)\*/g, "$1")
-          .replace(/`(.+?)`/g, "$1")
-          .replace(/^[-*]\s/, "• ");
-        const isBullet = text.startsWith("• ");
-        const splitLines: string[] = doc.splitTextToSize(text, contentWidth);
-        for (let li = 0; li < splitLines.length; li++) {
-          const sLine = splitLines[li];
-          if (y > pageHeight - 30) y = addNewPage();
-          const isLast = li === splitLines.length - 1;
-          // Justify body text: distribute extra space across words on full lines.
-          // Skip justification for bullet rows and the last line of a paragraph.
-          if (!isBullet && !isLast && sLine.trim().split(/\s+/).length > 1) {
-            const words = sLine.split(/\s+/).filter(Boolean);
-            const wordsWidth = words.reduce((sum, w) => sum + doc.getTextWidth(w), 0);
-            const spaceCount = words.length - 1;
-            const extraSpace = (contentWidth - wordsWidth) / spaceCount;
-            // Cap excessive spacing to avoid ugly rivers
-            const space = Math.min(extraSpace, doc.getTextWidth(" ") * 3);
-            let cursorX = margin;
-            for (let wi = 0; wi < words.length; wi++) {
-              doc.text(words[wi], cursorX, y);
-              cursorX += doc.getTextWidth(words[wi]) + space;
-            }
-          } else {
-            doc.text(sLine, margin, y, { maxWidth: contentWidth });
-          }
-          y += lineHeight;
-        }
-        // Small paragraph spacing
-        y += 1.5;
+        y += 5;
+        continue;
       }
+
+      if (trimmed === "") {
+        y += 3.5;
+        continue;
+      }
+
+      paragraph(trimmed);
     }
-    addPageNumber();
+
+    // ---------- Running header + page numbers ----------
+    const total = doc.getNumberOfPages();
+    const runningTitle = title.length > 70 ? `${title.slice(0, 67)}...` : title;
+    for (let p = 2; p <= total; p++) {
+      doc.setPage(p);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(runningTitle, margin, margin - 10);
+      doc.setDrawColor(225, 225, 225);
+      doc.setLineWidth(0.2);
+      doc.line(margin, margin - 7, pageWidth - margin, margin - 7);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(`${p - 1}`, pageWidth / 2, pageHeight - 12, { align: "center" });
+      doc.setTextColor(0, 0, 0);
+    }
+
     doc.save(`${title.replace(/[^a-zA-Z0-9À-ÿ\s]/g, "").slice(0, 50)}.pdf`);
   });
 }
