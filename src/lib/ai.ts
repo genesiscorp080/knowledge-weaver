@@ -842,12 +842,12 @@ export async function generateDocumentChunked(
       { toc, content: fullContent, sectionIdx: i, totalSections }
     );
 
-    const pagesPerSection = Math.max(1, Math.ceil(targetPages / totalSections));
+    const pagesPerSection = sectionPages[i] ?? Math.max(1, Math.ceil(targetPages / totalSections));
     const wordsPerSection = pagesPerSection * 500;
     const commonRules = `
 
 ABSOLUTE REQUIREMENTS for this section:
-- This writing unit is part ${i + 1}/${totalSections} of a strict ${targetPages}-page document. It MUST contribute AT LEAST ${wordsPerSection} words (≈ ${pagesPerSection} full pages) of CORE CONTENT. Producing less is a contract breach.
+- This writing unit is part ${i + 1}/${totalSections} of a strict ${targetPages}-page document. Sections are DELIBERATELY UNEQUAL in length: this one has been allocated ${pagesPerSection} page(s) because of the intrinsic richness of its subject, while others are shorter or much longer. The SUM of all sections must equal ${targetPages} pages, so respect YOUR allocation precisely: contribute AT LEAST ${wordsPerSection} words (≈ ${pagesPerSection} full pages) of CORE CONTENT and do not overshoot it by more than ~15%. Producing less is a contract breach; hugely overshooting steals pages from other sections.
 - Count as you write. Do not stop before the word floor is reached. Never end this reply with a closing/summary of the whole document.
 - Write long, expert-level analytical prose. If the topic is technical, include internals, trade-offs, implementation details, standards, failure modes, design choices, and concrete professional examples.
 - Exhaustiveness is mandatory: do not merely define the concept; cover causes, mechanisms, variants, taxonomy, historical evolution, current state of the art, edge cases, limits, critiques, comparisons, applications, and consequences.
