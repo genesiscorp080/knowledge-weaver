@@ -10,6 +10,7 @@ const FloatingProgress = () => {
   const isFr = language === "fr";
   const [expanded, setExpanded] = useState(false);
   const [viewIndex, setViewIndex] = useState(0);
+  const [downloadFor, setDownloadFor] = useState<string | null>(null);
 
   const activeOrQueued = jobs.filter(j => ["generating", "queued", "paused", "moderating"].includes(j.status));
   if (activeOrQueued.length === 0) return null;
