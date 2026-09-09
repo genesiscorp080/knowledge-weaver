@@ -2,10 +2,10 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useGeneration } from "@/contexts/GenerationContext";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Loader2, X, ChevronLeft, ChevronRight, FileText, Clock, Layers, Pause, Play, Trash2 } from "lucide-react";
+import { Loader2, X, ChevronLeft, ChevronRight, FileText, Clock, Layers, Pause, Play, Trash2, Download, Archive } from "lucide-react";
 
 const FloatingProgress = () => {
-  const { jobs, hasActiveGenerations, cancelJob, continueJob, abandonJob, pauseJob, resumeJob } = useGeneration();
+  const { jobs, hasActiveGenerations, cancelJob, continueJob, abandonJob, pauseJob, resumeJob, downloadJobDraft, keepJobForLater } = useGeneration();
   const { language } = useLanguage();
   const isFr = language === "fr";
   const [expanded, setExpanded] = useState(false);
