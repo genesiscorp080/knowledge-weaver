@@ -133,6 +133,45 @@ const FloatingProgress = () => {
             </button>
           </div>
 
+          {/* Download the document as generated so far */}
+          <div className="w-full mt-1 space-y-2">
+            <button onClick={() => setDownloadFor(currentJob.id)}
+              className="btn-primary w-full text-xs px-4 py-2.5 flex items-center justify-center gap-1.5">
+              <Download size={13} /> {isFr ? "Télécharger l'état actuel" : "Download current state"}
+            </button>
+          </div>
+
+          {/* Choice: keep the generation in memory or not */}
+          <AnimatePresence>
+            {downloadFor === currentJob.id && (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                className="w-full glass-card p-4 space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {isFr
+                    ? "Le document sera téléchargé tel qu'il est aujourd'hui. Voulez-vous garder la génération en mémoire pour la continuer plus tard ?"
+                    : "The document will be downloaded as it currently stands. Do you want to keep the generation in memory to continue it later?"}
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button onClick={() => { downloadJobDraft(currentJob.id); keepJobForLater(currentJob.id); setDownloadFor(null); }}
+                    className="btn-primary text-xs px-4 py-2.5 flex items-center justify-center gap-1.5">
+                    <Archive size={13} /> {isFr ? "Télécharger et garder en mémoire" : "Download and keep in memory"}
+                  </button>
+                  <button onClick={() => { downloadJobDraft(currentJob.id); cancelJob(currentJob.id); setDownloadFor(null); if (activeOrQueued.length <= 1) setExpanded(false); }}
+                    className="btn-secondary text-xs px-4 py-2.5 flex items-center justify-center gap-1.5 text-destructive">
+                    <Trash2 size={13} /> {isFr ? "Télécharger et tout supprimer" : "Download and delete everything"}
+                  </button>
+                  <button onClick={() => { downloadJobDraft(currentJob.id); setDownloadFor(null); }}
+                    className="btn-secondary text-xs px-4 py-2 flex items-center justify-center gap-1.5">
+                    <Download size={13} /> {isFr ? "Télécharger et continuer la génération" : "Download and keep generating"}
+                  </button>
+                  <button onClick={() => setDownloadFor(null)} className="text-xs text-muted-foreground py-1">
+                    {isFr ? "Annuler" : "Cancel"}
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Typing dots */}
           {currentJob.status === "generating" && (
             <div className="flex gap-1.5 mt-2">
