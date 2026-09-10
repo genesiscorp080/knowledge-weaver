@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { fetchFigureImage, imageSize, parseChartSpec, parseFigureLine, renderChartToDataUrl } from "@/lib/figures";
 
 interface AIRequest {
   action: string;
@@ -100,6 +101,30 @@ FORMATTING RULES
 - The content MUST reach the target page count. Never close a section early. Never write "to be continued".
 - Never produce placeholder text. Never refuse. If a topic is broad, structure exhaustively rather than summarising.
 - Use blank lines between paragraphs. Do NOT chain headings without intervening developed paragraphs. Keep heading wording concise so it centres cleanly.
+
+═══════════════════════════════════════════
+VISUALS — IMAGES, CHARTS AND DIAGRAMS (MANDATORY)
+═══════════════════════════════════════════
+A document without visuals is INCOMPLETE and will be rejected. You MUST illustrate the text abundantly using the two syntaxes below, and ONLY these two syntaxes.
+
+1) REAL ILLUSTRATIONS (photographs, portraits, maps, artworks, historical documents, anatomical plates, technical objects, places, specimens...).
+Write, on its own line, exactly:
+![FIGURE: precise English search terms | ${isFr ? "Figure 1 — légende descriptive en " + lang : "Figure 1 — descriptive caption"}](figure)
+   • The part BEFORE the "|" is a short, precise, ENGLISH search query used to retrieve a real public-domain image (e.g. "Eiffel Tower construction 1888", "human heart anatomy diagram", "Sahel desertification satellite"). Never a sentence, never a URL.
+   • The part AFTER the "|" is the caption, written in ${lang}, numbered continuously (Figure 1, Figure 2, ...).
+   • Place each figure immediately after the paragraph it illustrates, surrounded by blank lines.
+   • Every mention of a place, person, monument, organism, artwork, device, or phenomenon that can be seen SHOULD get its figure.
+
+2) STATISTICAL CHARTS AND DIAGRAMS — whenever you cite figures, series, proportions, distributions, evolutions or comparisons, you MUST also render them as a chart with a fenced block:
+\`\`\`chart
+{"type":"bar","title":"${isFr ? "Titre du graphique" : "Chart title"}","labels":["1990","2000","2010","2020"],"series":[{"name":"${isFr ? "Série" : "Series"}","data":[12,18,25,31]}],"xLabel":"...","yLabel":"...","caption":"${isFr ? "Graphique 1 — source : ..." : "Chart 1 — source: ..."}"}
+\`\`\`
+   • "type" ∈ bar | line | area | pie | donut | scatter. Choose the type that fits the data (evolution → line/area; comparison → bar; composition → pie/donut; correlation → scatter).
+   • JSON must be valid, on ONE line, with REAL, plausible, sourced numbers (state the source in "caption"). Never invented round placeholders like 10/20/30.
+   • Numbered continuously (Graphique/Chart 1, 2, ...).
+
+QUOTAS (minimum, strictly enforced): at least ONE visual (figure or chart) every 2 pages of core content, of which at least 40 % must be charts/diagrams whenever the subject carries any quantitative dimension. Tables remain markdown tables — they are NOT a substitute for charts.
+Do NOT use any other image syntax, do NOT invent image URLs, do NOT write "insert an image here", do NOT describe a figure without emitting its block.
 
 ═══════════════════════════════════════════
 BIBLIOGRAPHY (mandatory at the very end)
