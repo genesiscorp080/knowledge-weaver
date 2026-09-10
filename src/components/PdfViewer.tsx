@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Search, X, ChevronLeft, ChevronRight, Highlighter, List, ScrollText } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
-import ReactMarkdown from "react-markdown";
+import RichMarkdown from "@/components/RichMarkdown";
 
 interface Highlight {
   id: string;
@@ -189,9 +189,7 @@ const PdfViewer = ({ content, title, highlights = [], onAddHighlight, onRemoveHi
                     ))}
                   </div>
                 )}
-                <div className={proseClasses}>
-                  <ReactMarkdown>{pages[currentPage]}</ReactMarkdown>
-                </div>
+                <RichMarkdown content={pages[currentPage]} className={proseClasses} />
                 <div className="absolute bottom-4 left-0 right-0 text-center">
                   <span className="text-xs text-gray-400">{currentPage + 1}</span>
                 </div>
@@ -221,9 +219,7 @@ const PdfViewer = ({ content, title, highlights = [], onAddHighlight, onRemoveHi
           <div className="max-w-[600px] mx-auto space-y-6">
             {pages.map((pageContent, idx) => (
               <div key={idx} className="bg-white dark:bg-card shadow-lg rounded-sm min-h-[500px] p-8 relative">
-                <div className={proseClasses}>
-                  <ReactMarkdown>{pageContent}</ReactMarkdown>
-                </div>
+                <RichMarkdown content={pageContent} className={proseClasses} />
                 <div className="mt-6 pt-3 border-t border-gray-200 dark:border-border/30 text-center">
                   <span className="text-xs text-gray-400">{idx + 1} / {totalPages}</span>
                 </div>

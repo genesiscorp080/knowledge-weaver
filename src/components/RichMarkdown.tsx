@@ -19,7 +19,7 @@ const ChartBlock = ({ spec }: { spec: ChartSpec }) => {
   );
 };
 
-const FigureBlock = ({ ref: fig }: { ref: FigureRef }) => {
+const FigureBlock = ({ figure: fig }: { figure: FigureRef }) => {
   const { language } = useLanguage();
   const [state, setState] = useState<"loading" | "ok" | "none">("loading");
   const [src, setSrc] = useState<string | null>(null);
@@ -74,7 +74,7 @@ const RichMarkdown = ({ content, className }: { content: string; className?: str
     <div className={className}>
       {blocks.map((b, i) => {
         if (b.kind === "chart") return <ChartBlock key={i} spec={b.spec} />;
-        if (b.kind === "figure") return <FigureBlock key={i} ref={b.ref} />;
+        if (b.kind === "figure") return <FigureBlock key={i} figure={b.ref} />;
         return <ReactMarkdown key={i}>{b.text}</ReactMarkdown>;
       })}
     </div>
