@@ -970,6 +970,46 @@ Answer with EXACTLY ${totalSections} lines, nothing else, each line formatted "<
   }
 
 
+  // ---- Missing-section tracking: failed sections leave a marker and are retried
+  // at every 10-section checkpoint (all previous blocks) and once more at the end.
+  const failedSections = new Set<number>();
+  for (const m of fullContent.matchAll(MISSING_RE_G)) failedSections.add(Number(m[1]));
+  const retryCount = new Map<number, number>();
+
+  const recoverMissing = async (content: string, progress: number, final = false): Promise<string> => {
+    const pending = Array.from(failedSections).sort((a, b) => a - b);
+    if (pending.length === 0) return content;
+    let out = content;
+    for (const idx of pending) {
+      const tries = retryCount.get(idx) || 0;
+      if (!final && tries >= 3) continue;
+      retryCount.set(idx, tries + 1);
+      const sectionToc = sections[idx];
+      const name = sectionToc.split("\n")[0].trim().replace(/^[\d#.\)\-]+\s*/, "").slice(0, 80);
+      onProgress(progress, `${isFr ? "Reprise section manquante" : "Retrying missing section"} ${idx + 1}/${totalSections} : ${name}`, { toc, content: out });
+      const words = (sectionPages[idx] ?? 2) * 500;
+      try {
+        const text = await callAI({
+          action: "generate_section_recover",
+          messages: [{ role: "user", content: `Write the COMPLETE and DETAILED content for this section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${idx + 1} of ${totalSections}. Write at least ${words} words of expert content. Use markdown headings matching the TOC numbering. Return only the section content.` }],
+          systemPrompt,
+          maxTokens: maxOutputTokens,
+          temperature: 0.5,
+        });
+        if (text && text.trim().length > 200) {
+          out = out.replace(`<!--PRISCA_MISSING:${idx}-->`, text.trim());
+          failedSections.delete(idx);
+        }
+      } catch (err) {
+        const msg = String((err as any)?.message || "");
+        if (msg === "OFFLINE" || /network|failed to fetch/i.test(msg)) break;
+        console.warn(`Recovery of section ${idx + 1} failed:`, err);
+      }
+      await new Promise(r => setTimeout(r, 1200));
+    }
+    return out;
+  };
+
   for (let i = startIdx; i < totalSections; i++) {
     const sectionToc = sections[i];
     const progress = 10 + ((i / totalSections) * 85);
