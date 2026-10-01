@@ -543,7 +543,7 @@ export function generatePDF(title: string, content: string): void {
       y += 2;
     };
 
-    const lines = content.split("\n");
+    const lines = content.replace(MISSING_RE_G, "").split("\n");
 
     // ---------- Visuals: prefetch illustrations, number figures ----------
     const figs = await import("./figures");
