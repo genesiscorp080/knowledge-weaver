@@ -1030,9 +1030,18 @@ ABSOLUTE REQUIREMENTS for this section:
           (resumeErr as any).resumeState = { toc, content: fullContent, nextSectionIdx: i };
           throw resumeErr;
         }
-        sectionText = `## ${sectionName}\n\n*[Section generation failed. Please regenerate this section.]*`;
+        // Leave an invisible marker: the section is queued for a later retry.
+        sectionText = `<!--PRISCA_MISSING:${i}-->`;
+        failedSections.add(i);
       }
     }
+    if (failedSections.has(i)) {
+      fullContent += (fullContent.length > 0 ? "\n\n" : "") + sectionText;
+      onProgress(progress + (85 / totalSections), `${isFr ? "Section reportée" : "Section deferred"} ${i + 1}/${totalSections}`, { toc, content: fullContent, sectionIdx: i + 1, totalSections });
+      if ((i + 1) % 10 === 0) fullContent = await recoverMissing(fullContent, progress);
+      continue;
+    }
+
 
     // Per-section volume enforcement: a model reply is usually shorter than the
     // requested floor, so top the section up until it carries its own share of
@@ -1068,10 +1077,21 @@ ABSOLUTE REQUIREMENTS for this section:
     // Save after each section to enable resume
     onProgress(progress + (85 / totalSections), `${isFr ? "Section terminée" : "Section completed"} ${i + 1}/${totalSections}`, { toc, content: fullContent, sectionIdx: i + 1, totalSections });
 
+    // Checkpoint every 10 sections: re-check every earlier block for missing sections.
+    if ((i + 1) % 10 === 0) {
+      fullContent = await recoverMissing(fullContent, progress);
+      onProgress(progress + (85 / totalSections), isFr ? "Contrôle des sections terminé" : "Section check done", { toc, content: fullContent, sectionIdx: i + 1, totalSections });
+    }
+
     if (i < totalSections - 1) {
       await new Promise(r => setTimeout(r, 800));
     }
   }
+
+  // Final review of the whole book before finishing.
+  fullContent = await recoverMissing(fullContent, 95, true);
+  fullContent = fullContent.replace(MISSING_RE_G, "").replace(/\n{3,}/g, "\n\n");
+
 
 
   let currentPages = estimatePageCount(fullContent);
