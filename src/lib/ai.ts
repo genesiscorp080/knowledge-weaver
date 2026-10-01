@@ -402,7 +402,7 @@ export function stripPageMarkers(text: string): string {
 }
 
 export function generatePDF(title: string, content: string): void {
-  Promise.all([import("jspdf"), import("jspdf-autotable")]).then(([{ jsPDF }, autoTableMod]) => {
+  Promise.all([import("jspdf"), import("jspdf-autotable")]).then(async ([{ jsPDF }, autoTableMod]) => {
     const autoTable: any = (autoTableMod as any).default || (autoTableMod as any);
     const doc = new jsPDF();
     const margin = 25;
@@ -529,8 +529,73 @@ export function generatePDF(title: string, content: string): void {
     };
 
     const lines = content.split("\n");
+
+    // ---------- Visuals: prefetch illustrations, number figures ----------
+    const figs = await import("./figures");
+    const figQueries = Array.from(new Set(lines.map(l => figs.parseFigureLine(l)?.query).filter(Boolean) as string[]));
+    const fetched = new Map<string, Awaited<ReturnType<typeof figs.fetchFigureImage>>>();
+    const withTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<null>(r => setTimeout(() => r(null), ms))]);
+    for (let k = 0; k < figQueries.length; k += 4) {
+      await Promise.all(figQueries.slice(k, k + 4).map(async q => {
+        fetched.set(q, (await withTimeout(figs.fetchFigureImage(q), 20000)) as any);
+      }));
+    }
+    let figNo = 0;
+    const drawImage = async (dataUrl: string, format: "PNG" | "JPEG", caption: string) => {
+      const size = await figs.imageSize(dataUrl);
+      const maxW = contentWidth * 0.9;
+      const maxH = 110;
+      let w = maxW;
+      let h = (size.height / size.width) * w;
+      if (h > maxH) { h = maxH; w = (size.width / size.height) * h; }
+      doc.setFontSize(9);
+      const capLines = caption ? wrap(caption, contentWidth - 10) : [];
+      need(h + 6 + capLines.length * 4.5);
+      try {
+        doc.addImage(dataUrl, format, (pageWidth - w) / 2, y, w, h);
+      } catch (e) {
+        console.warn("addImage failed", e);
+      }
+      y += h + 5;
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(90, 90, 90);
+      capLines.forEach(l => { doc.text(l, pageWidth / 2, y, { align: "center" }); y += 4.5; });
+      doc.setTextColor(0, 0, 0);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      y += 4;
+    };
+
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim();
+
+      // ---------- Charts ----------
+      if (/^```\s*(chart|graph|graphique|diagram|diagramme)\s*$/i.test(trimmed)) {
+        const body: string[] = [];
+        i++;
+        while (i < lines.length && !/^```/.test(lines[i].trim())) { body.push(lines[i]); i++; }
+        const spec = figs.parseChartSpec(body.join("\n"));
+        const url = spec ? figs.renderChartToDataUrl(spec) : null;
+        if (spec && url) {
+          figNo++;
+          const cap = `Figure ${figNo} — ${spec.caption || spec.title || ""}`.trim();
+          await drawImage(url, "PNG", cap);
+        }
+        continue;
+      }
+      if (/^```/.test(trimmed)) continue;
+
+      // ---------- Illustrations ----------
+      const figRef = figs.parseFigureLine(trimmed);
+      if (figRef) {
+        const f = fetched.get(figRef.query);
+        if (f) {
+          figNo++;
+          await drawImage(f.dataUrl, f.format, `Figure ${figNo} — ${figRef.caption || figRef.query} (${f.credit})`);
+        }
+        continue;
+      }
+
 
       // ---------- Markdown tables ----------
       if (/^\|.*\|$/.test(trimmed)) {
