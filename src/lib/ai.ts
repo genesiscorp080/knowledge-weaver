@@ -70,6 +70,18 @@ PAGE COUNT CONTRACT (STRICTLY ENFORCED)
 ${getPageCountContract(targetPages, isFr)}
 
 ═══════════════════════════════════════════
+NATURAL, HUMAN VOICE (mandatory — rigor unchanged)
+═══════════════════════════════════════════
+Write like a seasoned human expert-author, not like an AI. Keep full precision, depth and exhaustiveness, but:
+- Vary sentence length and rhythm: mix short punchy sentences with long, articulated ones. Vary paragraph length too.
+- BANNED stock phrases and tics: "Il est important de noter", "Il convient de souligner", "En conclusion", "En somme", "Dans un monde en constante évolution", "jouer un rôle crucial/clé", "véritable pierre angulaire", "force est de constater", "plonger dans", "naviguer dans", "au cœur de", "It is important to note", "In today's fast-paced world", "delve", "plays a crucial role", "a testament to", "tapestry", "landscape", "In conclusion", "Overall".
+- No systematic triads ("X, Y et Z") in every sentence; no sentence that just announces what the next paragraph will say; no paragraph ending with a moralising one-line summary.
+- Do not open every section the same way; do not overuse bullet lists or bold — prefer real, connected prose with logical connectors that vary.
+- Take positions where the literature supports it, nuance where it is debated, use concrete examples, anecdotes from the history of the field, precise numbers and named people.
+- Occasional rhetorical questions, asides and transitions that a professor would use are welcome, sparingly.
+- Never mention being an AI; never use filler hedges.
+
+═══════════════════════════════════════════
 ABSOLUTE QUALITY CONTRACT (non-negotiable)
 ═══════════════════════════════════════════
 - Language register MUST match the academic level: rich, precise, technical vocabulary; varied syntax; impeccable grammar.
@@ -384,6 +396,9 @@ ${isFr ? "Pour les QCM, indiquez la bonne réponse et expliquez pourquoi. Pour l
 Document content:
 ${documentContent.slice(0, 12000)}`;
 }
+
+/** Invisible marker left in place of a section whose generation failed (retried later). */
+export const MISSING_RE_G = /<!--PRISCA_MISSING:(\d+)-->/g;
 
 /** Removes "(~12 pages)" / "— 12 p." style volume markers used internally in outlines. */
 export function stripPageMarkers(text: string): string {
