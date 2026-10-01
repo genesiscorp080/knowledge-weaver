@@ -70,6 +70,18 @@ PAGE COUNT CONTRACT (STRICTLY ENFORCED)
 ${getPageCountContract(targetPages, isFr)}
 
 ═══════════════════════════════════════════
+NATURAL, HUMAN VOICE (mandatory — rigor unchanged)
+═══════════════════════════════════════════
+Write like a seasoned human expert-author, not like an AI. Keep full precision, depth and exhaustiveness, but:
+- Vary sentence length and rhythm: mix short punchy sentences with long, articulated ones. Vary paragraph length too.
+- BANNED stock phrases and tics: "Il est important de noter", "Il convient de souligner", "En conclusion", "En somme", "Dans un monde en constante évolution", "jouer un rôle crucial/clé", "véritable pierre angulaire", "force est de constater", "plonger dans", "naviguer dans", "au cœur de", "It is important to note", "In today's fast-paced world", "delve", "plays a crucial role", "a testament to", "tapestry", "landscape", "In conclusion", "Overall".
+- No systematic triads ("X, Y et Z") in every sentence; no sentence that just announces what the next paragraph will say; no paragraph ending with a moralising one-line summary.
+- Do not open every section the same way; do not overuse bullet lists or bold — prefer real, connected prose with logical connectors that vary.
+- Take positions where the literature supports it, nuance where it is debated, use concrete examples, anecdotes from the history of the field, precise numbers and named people.
+- Occasional rhetorical questions, asides and transitions that a professor would use are welcome, sparingly.
+- Never mention being an AI; never use filler hedges.
+
+═══════════════════════════════════════════
 ABSOLUTE QUALITY CONTRACT (non-negotiable)
 ═══════════════════════════════════════════
 - Language register MUST match the academic level: rich, precise, technical vocabulary; varied syntax; impeccable grammar.
@@ -385,6 +397,9 @@ Document content:
 ${documentContent.slice(0, 12000)}`;
 }
 
+/** Invisible marker left in place of a section whose generation failed (retried later). */
+export const MISSING_RE_G = /<!--PRISCA_MISSING:(\d+)-->/g;
+
 /** Removes "(~12 pages)" / "— 12 p." style volume markers used internally in outlines. */
 export function stripPageMarkers(text: string): string {
   if (!text) return "";
@@ -402,7 +417,7 @@ export function stripPageMarkers(text: string): string {
 }
 
 export function generatePDF(title: string, content: string): void {
-  Promise.all([import("jspdf"), import("jspdf-autotable")]).then(([{ jsPDF }, autoTableMod]) => {
+  Promise.all([import("jspdf"), import("jspdf-autotable")]).then(async ([{ jsPDF }, autoTableMod]) => {
     const autoTable: any = (autoTableMod as any).default || (autoTableMod as any);
     const doc = new jsPDF();
     const margin = 25;
@@ -528,9 +543,74 @@ export function generatePDF(title: string, content: string): void {
       y += 2;
     };
 
-    const lines = content.split("\n");
+    const lines = content.replace(MISSING_RE_G, "").split("\n");
+
+    // ---------- Visuals: prefetch illustrations, number figures ----------
+    const figs = await import("./figures");
+    const figQueries = Array.from(new Set(lines.map(l => figs.parseFigureLine(l)?.query).filter(Boolean) as string[]));
+    const fetched = new Map<string, Awaited<ReturnType<typeof figs.fetchFigureImage>>>();
+    const withTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<null>(r => setTimeout(() => r(null), ms))]);
+    for (let k = 0; k < figQueries.length; k += 4) {
+      await Promise.all(figQueries.slice(k, k + 4).map(async q => {
+        fetched.set(q, (await withTimeout(figs.fetchFigureImage(q), 20000)) as any);
+      }));
+    }
+    let figNo = 0;
+    const drawImage = async (dataUrl: string, format: "PNG" | "JPEG", caption: string) => {
+      const size = await figs.imageSize(dataUrl);
+      const maxW = contentWidth * 0.9;
+      const maxH = 110;
+      let w = maxW;
+      let h = (size.height / size.width) * w;
+      if (h > maxH) { h = maxH; w = (size.width / size.height) * h; }
+      doc.setFontSize(9);
+      const capLines = caption ? wrap(caption, contentWidth - 10) : [];
+      need(h + 6 + capLines.length * 4.5);
+      try {
+        doc.addImage(dataUrl, format, (pageWidth - w) / 2, y, w, h);
+      } catch (e) {
+        console.warn("addImage failed", e);
+      }
+      y += h + 5;
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(90, 90, 90);
+      capLines.forEach(l => { doc.text(l, pageWidth / 2, y, { align: "center" }); y += 4.5; });
+      doc.setTextColor(0, 0, 0);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      y += 4;
+    };
+
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim();
+
+      // ---------- Charts ----------
+      if (/^```\s*(chart|graph|graphique|diagram|diagramme)\s*$/i.test(trimmed)) {
+        const body: string[] = [];
+        i++;
+        while (i < lines.length && !/^```/.test(lines[i].trim())) { body.push(lines[i]); i++; }
+        const spec = figs.parseChartSpec(body.join("\n"));
+        const url = spec ? figs.renderChartToDataUrl(spec) : null;
+        if (spec && url) {
+          figNo++;
+          const cap = `Figure ${figNo} — ${spec.caption || spec.title || ""}`.trim();
+          await drawImage(url, "PNG", cap);
+        }
+        continue;
+      }
+      if (/^```/.test(trimmed)) continue;
+
+      // ---------- Illustrations ----------
+      const figRef = figs.parseFigureLine(trimmed);
+      if (figRef) {
+        const f = fetched.get(figRef.query);
+        if (f) {
+          figNo++;
+          await drawImage(f.dataUrl, f.format, `Figure ${figNo} — ${figRef.caption || figRef.query} (${f.credit})`);
+        }
+        continue;
+      }
+
 
       // ---------- Markdown tables ----------
       if (/^\|.*\|$/.test(trimmed)) {
@@ -905,6 +985,46 @@ Answer with EXACTLY ${totalSections} lines, nothing else, each line formatted "<
   }
 
 
+  // ---- Missing-section tracking: failed sections leave a marker and are retried
+  // at every 10-section checkpoint (all previous blocks) and once more at the end.
+  const failedSections = new Set<number>();
+  for (const m of fullContent.matchAll(MISSING_RE_G)) failedSections.add(Number(m[1]));
+  const retryCount = new Map<number, number>();
+
+  const recoverMissing = async (content: string, progress: number, final = false): Promise<string> => {
+    const pending = Array.from(failedSections).sort((a, b) => a - b);
+    if (pending.length === 0) return content;
+    let out = content;
+    for (const idx of pending) {
+      const tries = retryCount.get(idx) || 0;
+      if (!final && tries >= 3) continue;
+      retryCount.set(idx, tries + 1);
+      const sectionToc = sections[idx];
+      const name = sectionToc.split("\n")[0].trim().replace(/^[\d#.\)\-]+\s*/, "").slice(0, 80);
+      onProgress(progress, `${isFr ? "Reprise section manquante" : "Retrying missing section"} ${idx + 1}/${totalSections} : ${name}`, { toc, content: out });
+      const words = (sectionPages[idx] ?? 2) * 500;
+      try {
+        const text = await callAI({
+          action: "generate_section_recover",
+          messages: [{ role: "user", content: `Write the COMPLETE and DETAILED content for this section of the document about "${topic}":\n\n${sectionToc}\n\nThis is section ${idx + 1} of ${totalSections}. Write at least ${words} words of expert content. Use markdown headings matching the TOC numbering. Return only the section content.` }],
+          systemPrompt,
+          maxTokens: maxOutputTokens,
+          temperature: 0.5,
+        });
+        if (text && text.trim().length > 200) {
+          out = out.replace(`<!--PRISCA_MISSING:${idx}-->`, text.trim());
+          failedSections.delete(idx);
+        }
+      } catch (err) {
+        const msg = String((err as any)?.message || "");
+        if (msg === "OFFLINE" || /network|failed to fetch/i.test(msg)) break;
+        console.warn(`Recovery of section ${idx + 1} failed:`, err);
+      }
+      await new Promise(r => setTimeout(r, 1200));
+    }
+    return out;
+  };
+
   for (let i = startIdx; i < totalSections; i++) {
     const sectionToc = sections[i];
     const progress = 10 + ((i / totalSections) * 85);
@@ -965,9 +1085,18 @@ ABSOLUTE REQUIREMENTS for this section:
           (resumeErr as any).resumeState = { toc, content: fullContent, nextSectionIdx: i };
           throw resumeErr;
         }
-        sectionText = `## ${sectionName}\n\n*[Section generation failed. Please regenerate this section.]*`;
+        // Leave an invisible marker: the section is queued for a later retry.
+        sectionText = `<!--PRISCA_MISSING:${i}-->`;
+        failedSections.add(i);
       }
     }
+    if (failedSections.has(i)) {
+      fullContent += (fullContent.length > 0 ? "\n\n" : "") + sectionText;
+      onProgress(progress + (85 / totalSections), `${isFr ? "Section reportée" : "Section deferred"} ${i + 1}/${totalSections}`, { toc, content: fullContent, sectionIdx: i + 1, totalSections });
+      if ((i + 1) % 10 === 0) fullContent = await recoverMissing(fullContent, progress);
+      continue;
+    }
+
 
     // Per-section volume enforcement: a model reply is usually shorter than the
     // requested floor, so top the section up until it carries its own share of
@@ -1003,10 +1132,21 @@ ABSOLUTE REQUIREMENTS for this section:
     // Save after each section to enable resume
     onProgress(progress + (85 / totalSections), `${isFr ? "Section terminée" : "Section completed"} ${i + 1}/${totalSections}`, { toc, content: fullContent, sectionIdx: i + 1, totalSections });
 
+    // Checkpoint every 10 sections: re-check every earlier block for missing sections.
+    if ((i + 1) % 10 === 0) {
+      fullContent = await recoverMissing(fullContent, progress);
+      onProgress(progress + (85 / totalSections), isFr ? "Contrôle des sections terminé" : "Section check done", { toc, content: fullContent, sectionIdx: i + 1, totalSections });
+    }
+
     if (i < totalSections - 1) {
       await new Promise(r => setTimeout(r, 800));
     }
   }
+
+  // Final review of the whole book before finishing.
+  fullContent = await recoverMissing(fullContent, 95, true);
+  fullContent = fullContent.replace(MISSING_RE_G, "").replace(/\n{3,}/g, "\n\n");
+
 
 
   let currentPages = estimatePageCount(fullContent);
