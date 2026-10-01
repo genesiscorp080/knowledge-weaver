@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, BookOpen, Check, X } from "lucide-react";
+import { Search, BookOpen, Check, X, Play, Download, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import StatusBar from "@/components/StatusBar";
 import DocMenu from "@/components/DocMenu";
 import EnhanceDialog, { EnhanceTarget } from "@/components/EnhanceDialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useDocuments } from "@/contexts/DocumentContext";
+import { useGeneration } from "@/contexts/GenerationContext";
 import { generatePDF } from "@/lib/ai";
 import { estimatePageCount } from "@/lib/pdfUtils";
 import pdfIcon from "@/assets/icone_pdf.png";
@@ -14,6 +15,7 @@ import pdfIcon from "@/assets/icone_pdf.png";
 const LibraryPage = () => {
   const { t, language } = useLanguage();
   const { documents, deleteDocument, renameDocument } = useDocuments();
+  const { pendingJobs, resumeJob, downloadJobDraft, abandonJob } = useGeneration();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,6 +49,24 @@ const LibraryPage = () => {
         </p>
 
         <div className="space-y-3">
+          {pendingJobs.filter(j => j.status === "paused" || j.keptInMemory).map(job => (
+            <div key={job.id} className="glass-card p-4 opacity-60 border-dashed">
+              <div className="flex items-start gap-3">
+                <img src={pdfIcon} alt="PDF" className="w-10 h-10 object-contain shrink-0 grayscale" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{job.kind === "enhance" ? (job.sourceTitle || job.topic) : job.topic}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {isFr ? "En mémoire" : "Kept in memory"} · {Math.round(job.progress)}% · {job.sectionsCompleted}/{job.totalSections || "?"} sections
+                  </p>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => resumeJob(job.id)} className="text-[11px] font-semibold text-primary flex items-center gap-1"><Play size={12} />{isFr ? "Reprendre" : "Resume"}</button>
+                    <button onClick={() => downloadJobDraft(job.id)} className="text-[11px] font-semibold text-foreground flex items-center gap-1"><Download size={12} />{isFr ? "Télécharger" : "Download"}</button>
+                    <button onClick={() => abandonJob(job.id)} className="text-[11px] font-semibold text-destructive flex items-center gap-1"><Trash2 size={12} />{isFr ? "Supprimer" : "Delete"}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
           <AnimatePresence>
             {filteredDocs.map((doc, i) => {
               const realPages = estimatePageCount(doc.content);
