@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, ReactNode, useCallback, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -57,6 +57,7 @@ interface DocumentContextType {
   renameDocument: (id: string, newTitle: string) => void;
   updateDocumentContent: (id: string, content: string, tableOfContents: string, pages: number) => Promise<void>;
   getDocument: (id: string) => GeneratedDocument | ImportedDocument | undefined;
+  ensureDocumentLoaded: (id: string) => Promise<GeneratedDocument | ImportedDocument | undefined>;
   addChatMessage: (docId: string, message: ChatMessage) => void;
   getAllChats: () => ChatMessage[];
   evaluations: Evaluation[];
@@ -87,10 +88,64 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [importedDocuments, setImportedDocuments] = useState<ImportedDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, isGuest } = useAuth();
+  const userId = user?.id;
+  const documentsRef = useRef(documents);
+  const importsRef = useRef(importedDocuments);
+  documentsRef.current = documents;
+  importsRef.current = importedDocuments;
+  const ownerRef = useRef(userId);
+  ownerRef.current = userId;
+  const loadedBodies = useRef(new Map<string, GeneratedDocument | ImportedDocument>());
+  const bodyRequests = useRef(new Map<string, Promise<GeneratedDocument | ImportedDocument | undefined>>());
+
+  const ensureDocumentLoaded = useCallback(async (id: string) => {
+    const local = documentsRef.current.find(d => d.id === id) || importsRef.current.find(d => d.id === id);
+    if (isGuest || (local && local.content)) return local;
+    const cached = loadedBodies.current.get(id);
+    if (cached) return cached;
+    if (!userId) return undefined;
+    const existing = bodyRequests.current.get(id);
+    if (existing) return existing;
+    const request = (async () => {
+      const result = await supabase.from("documents").select("*").eq("user_id", userId).eq("id", id).maybeSingle();
+      if (result.error) throw result.error;
+      let full: GeneratedDocument | ImportedDocument | undefined;
+      if (result.data) {
+        const d = result.data;
+        full = { id: d.id, title: d.title, topic: d.topic, format: d.format, level: d.level, depth: d.depth,
+          pages: d.pages || 0, content: d.content || "", tableOfContents: d.table_of_contents || "",
+          createdAt: new Date(d.created_at || Date.now()), chatHistory: local?.chatHistory || [] };
+      } else {
+        const imported = await supabase.from("imported_documents").select("*").eq("user_id", userId).eq("id", id).maybeSingle();
+        if (imported.error) throw imported.error;
+        if (imported.data) {
+          const d = imported.data;
+          full = { id: d.id, title: d.title, fileName: d.file_name, content: d.content || "", pageCount: d.page_count || 0,
+            theme: d.theme || "", createdAt: new Date(d.created_at || Date.now()), chatHistory: local?.chatHistory || [] };
+        }
+      }
+      if (ownerRef.current !== userId) return undefined;
+      if (full) {
+        loadedBodies.current.set(id, full);
+        const hydrated = full;
+        if ("fileName" in hydrated) setImportedDocuments(prev => prev.some(d => d.id === id)
+          ? prev.map(d => d.id === id ? { ...hydrated, chatHistory: d.chatHistory } : d) : [...prev, hydrated]);
+        else setDocuments(prev => prev.some(d => d.id === id)
+          ? prev.map(d => d.id === id ? { ...hydrated, chatHistory: d.chatHistory } : d) : [...prev, hydrated]);
+      }
+      return full;
+    })();
+    bodyRequests.current.set(id, request);
+    try { return await request; }
+    finally { if (bodyRequests.current.get(id) === request) bodyRequests.current.delete(id); }
+  }, [userId, isGuest]);
 
   // Load data from DB
   useEffect(() => {
-    if (!user) {
+    const controller = new AbortController();
+    loadedBodies.current.clear();
+    bodyRequests.current.clear();
+    if (!userId) {
       if (isGuest) {
         try {
           const raw = localStorage.getItem(GUEST_DATA_KEY);
@@ -114,39 +169,50 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
     const loadData = async () => {
       setLoading(true);
+      setDocuments([]);
+      setImportedDocuments([]);
+      setEvaluations([]);
       try {
-        // Run all queries in PARALLEL for fast loading
+        // Only metadata is needed at sign-in. Books can contain megabytes of text.
         const [docsRes, importsRes, evalsRes, chatsRes] = await Promise.all([
-          supabase.from("documents").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
-          supabase.from("imported_documents").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
-          supabase.from("evaluations").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
-          supabase.from("chat_messages").select("*").eq("user_id", user.id),
+          supabase.from("documents").select("id,title,topic,format,level,depth,pages,created_at").eq("user_id", userId).order("created_at", { ascending: false }).abortSignal(controller.signal),
+          supabase.from("imported_documents").select("id,title,file_name,page_count,theme,created_at").eq("user_id", userId).order("created_at", { ascending: false }).abortSignal(controller.signal),
+          supabase.from("evaluations").select("*").eq("user_id", userId).order("created_at", { ascending: false }).abortSignal(controller.signal),
+          supabase.from("chat_messages").select("*").eq("user_id", userId).abortSignal(controller.signal),
         ]);
+        if (controller.signal.aborted) return;
+        for (const response of [docsRes, importsRes, evalsRes, chatsRes]) {
+          if (response.error) throw response.error;
+        }
 
         // Build chat map once
         const chatMap = new Map<string, ChatMessage[]>();
         chatsRes.data?.forEach(c => {
-          if (!chatMap.has(c.document_id)) chatMap.set(c.document_id, []);
-          chatMap.get(c.document_id)!.push({
+          const history = chatMap.get(c.document_id) || [];
+          history.push({
             id: c.id, role: c.role as "user" | "assistant", content: c.content,
-            timestamp: new Date(c.created_at!), documentId: c.document_id, documentTitle: c.document_title,
+            timestamp: new Date(c.created_at || Date.now()), documentId: c.document_id, documentTitle: c.document_title,
           });
+          chatMap.set(c.document_id, history);
         });
 
         if (docsRes.data) {
           setDocuments(docsRes.data.map(d => ({
             id: d.id, title: d.title, topic: d.topic, format: d.format, level: d.level,
-            depth: d.depth, pages: d.pages || 0, content: d.content || "",
-            tableOfContents: d.table_of_contents || "", createdAt: new Date(d.created_at!),
+            depth: d.depth, pages: d.pages || 0, content: loadedBodies.current.get(d.id)?.content || "",
+            tableOfContents: (() => {
+              const full = loadedBodies.current.get(d.id);
+              return full && "tableOfContents" in full ? full.tableOfContents : "";
+            })(), createdAt: new Date(d.created_at || Date.now()),
             chatHistory: chatMap.get(d.id) || [],
           })));
         }
 
         if (importsRes.data) {
           setImportedDocuments(importsRes.data.map(d => ({
-            id: d.id, title: d.title, fileName: d.file_name, content: d.content || "",
+            id: d.id, title: d.title, fileName: d.file_name, content: loadedBodies.current.get(d.id)?.content || "",
             pageCount: d.page_count || 0, theme: d.theme || "",
-            createdAt: new Date(d.created_at!), chatHistory: chatMap.get(d.id) || [],
+            createdAt: new Date(d.created_at || Date.now()), chatHistory: chatMap.get(d.id) || [],
           })));
         }
 
@@ -156,17 +222,18 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
             content: e.content || "", answersContent: e.answers_content || "",
             depth: e.depth || "", format: e.format || "", completed: e.completed || false,
             score: e.score, totalQuestions: e.total_questions || 25,
-            createdAt: new Date(e.created_at!),
+            createdAt: new Date(e.created_at || Date.now()),
           })));
         }
       } catch (err) {
         console.error("Error loading data:", err);
       }
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     };
 
     loadData();
-  }, [user, isGuest]);
+    return () => controller.abort();
+  }, [userId, isGuest]);
 
   // Persist guest data locally
   useEffect(() => {
@@ -294,7 +361,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <DocumentContext.Provider value={{
-      documents, addDocument, deleteDocument, renameDocument, getDocument, updateDocumentContent,
+      documents, addDocument, deleteDocument, renameDocument, getDocument, ensureDocumentLoaded, updateDocumentContent,
       addChatMessage, getAllChats, evaluations, addEvaluation, deleteEvaluation,
       importedDocuments, addImportedDocument, deleteImportedDocument,
       getImportedDocument, addImportedChatMessage, getAllDocumentsForEval, loading,

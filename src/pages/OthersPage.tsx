@@ -15,7 +15,7 @@ import pdfIcon from "@/assets/icone_pdf.png";
 const ImportsPage = () => {
   const { t, language } = useLanguage();
   const { canAskQuestion, recordQuestion } = useAuth();
-  const { importedDocuments, addImportedDocument, deleteImportedDocument, addImportedChatMessage } = useDocuments();
+  const { importedDocuments, addImportedDocument, deleteImportedDocument, addImportedChatMessage, ensureDocumentLoaded } = useDocuments();
   const [isImporting, setIsImporting] = useState(false);
   const [importStep, setImportStep] = useState("");
   const [importProgress, setImportProgress] = useState(0);
@@ -278,7 +278,12 @@ const ImportsPage = () => {
               <motion.div key={doc.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, x: -100 }} transition={{ delay: i * 0.05 }}
                 className="glass-card p-4 cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => setSelectedDoc(doc)}>
+                onClick={async () => {
+                  try {
+                    const full = await ensureDocumentLoaded(doc.id);
+                    if (full && "fileName" in full) setSelectedDoc(full);
+                  } catch { toast.error(t("common.error")); }
+                }}>
                 <div className="flex items-start gap-3">
                   <img src={pdfIcon} alt="PDF" className="w-10 h-10 object-contain shrink-0" />
                   <div className="flex-1 min-w-0">

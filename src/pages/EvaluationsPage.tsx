@@ -20,7 +20,7 @@ const qcmQroOptions = [
 
 const EvaluationsPage = () => {
   const { t, language } = useLanguage();
-  const { evaluations, addEvaluation, deleteEvaluation, getAllDocumentsForEval } = useDocuments();
+  const { evaluations, addEvaluation, deleteEvaluation, getAllDocumentsForEval, ensureDocumentLoaded } = useDocuments();
   const allDocs = getAllDocumentsForEval();
   const [selectedDocId, setSelectedDocId] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -44,12 +44,14 @@ const EvaluationsPage = () => {
     setIsGenerating(true);
 
     try {
+      const fullDoc = await ensureDocumentLoaded(selectedDoc.id);
+      if (!fullDoc) throw new Error("Document not found");
       const ratio = qcmQroOptions[selectedRatio];
       const qcm = questionType === "qcm" ? 100 : questionType === "qro" ? 0 : ratio.qcm;
       const qro = questionType === "qcm" ? 0 : questionType === "qro" ? 100 : ratio.qro;
 
       const systemPrompt = buildEvaluationSystemPrompt(
-        selectedDoc.content, selectedDoc.depth, language,
+        fullDoc.content, selectedDoc.depth, language,
         questionType, questionCount, qcm, qro
       );
 

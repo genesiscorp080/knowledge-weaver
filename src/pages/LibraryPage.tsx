@@ -11,10 +11,11 @@ import { useGeneration } from "@/contexts/GenerationContext";
 import { generatePDF } from "@/lib/ai";
 import { estimatePageCount } from "@/lib/pdfUtils";
 import pdfIcon from "@/assets/icone_pdf.png";
+import { toast } from "sonner";
 
 const LibraryPage = () => {
   const { t, language } = useLanguage();
-  const { documents, deleteDocument, renameDocument } = useDocuments();
+  const { documents, deleteDocument, renameDocument, ensureDocumentLoaded } = useDocuments();
   const { pendingJobs, resumeJob, downloadJobDraft, abandonJob } = useGeneration();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -69,7 +70,7 @@ const LibraryPage = () => {
           ))}
           <AnimatePresence>
             {filteredDocs.map((doc, i) => {
-              const realPages = estimatePageCount(doc.content);
+              const realPages = doc.content ? estimatePageCount(doc.content) : doc.pages;
               return (
                 <motion.div key={doc.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -100 }} transition={{ delay: i * 0.05 }}
                   className="glass-card p-4 cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate(`/document/${doc.id}`)}>
@@ -100,18 +101,19 @@ const LibraryPage = () => {
                       <DocMenu
                         onRename={() => { setEditingId(doc.id); setEditTitle(doc.title); }}
                         onDelete={() => deleteDocument(doc.id)}
-                        onDownload={() => generatePDF(doc.title, doc.content)}
+                        onDownload={async () => {
+                          try {
+                            const full = await ensureDocumentLoaded(doc.id);
+                            if (full) await generatePDF(full.title, full.content);
+                          } catch { toast.error(t("common.error")); }
+                        }}
                         onEdit={() => navigate(`/document/${doc.id}`)}
-                        onEnhance={() => setEnhanceTarget({
-                          id: doc.id,
-                          title: doc.title,
-                          topic: (doc as any).topic || doc.title,
-                          level: doc.level,
-                          format: doc.format,
-                          depth: (doc as any).depth || "",
-                          content: doc.content,
-                          tableOfContents: (doc as any).tableOfContents || "",
-                        })}
+                        onEnhance={async () => {
+                          try {
+                            const full = await ensureDocumentLoaded(doc.id);
+                            if (full && "level" in full) setEnhanceTarget({ ...full });
+                          } catch { toast.error(t("common.error")); }
+                        }}
                       />
                     </div>
                   </div>

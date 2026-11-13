@@ -1,5 +1,7 @@
 # Roadmap
 
+- [x] 9. Corriger le chargement à la connexion et vérifier avec une session réelle
+
 - [x] 1. Télécharger pendant la génération + garder en mémoire; jobs en mémoire en semi-transparence dans la bibliothèque
 - [x] 2. EnhanceDialog dans le lecteur
 - [x] 3. Renforcement testé

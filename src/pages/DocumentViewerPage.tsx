@@ -15,7 +15,7 @@ const DocumentViewerPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { t, language } = useLanguage();
-  const { getDocument, getImportedDocument, addChatMessage, addImportedChatMessage } = useDocuments();
+  const { getDocument, getImportedDocument, addChatMessage, addImportedChatMessage, ensureDocumentLoaded } = useDocuments();
   const { canAskQuestion, recordQuestion } = useAuth();
   
   const doc = getDocument(id || "");
@@ -26,7 +26,17 @@ const DocumentViewerPage = () => {
   const [isSending, setIsSending] = useState(false);
   const [highlights, setHighlights] = useState<{ id: string; text: string; pageIndex: number; color: string }[]>([]);
   const [enhanceOpen, setEnhanceOpen] = useState(false);
+  const [bodyLoading, setBodyLoading] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBodyLoading(true);
+    ensureDocumentLoaded(id || "").catch(() => toast.error(t("common.error"))).finally(() => {
+      if (!cancelled) setBodyLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [id, ensureDocumentLoaded]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -44,6 +54,10 @@ const DocumentViewerPage = () => {
     setHighlights(h);
     if (id) localStorage.setItem(`highlights-${id}`, JSON.stringify(h));
   };
+
+  if (bodyLoading) {
+    return <div className="mobile-container flex items-center justify-center min-h-screen"><Loader2 className="animate-spin text-primary" /></div>;
+  }
 
   if (!doc) {
     return (
