@@ -3,6 +3,8 @@ import { fetchFigureImage, imageSize, parseChartSpec, parseFigureLine, renderCha
 import { deliverFile, downloadBlob } from "@/lib/downloads";
 import { toast } from "sonner";
 import { preparePdfImage } from "@/lib/pdfImages";
+import { createElement } from "react";
+import { PdfExportProgress, type PdfExportStatus } from "@/components/PdfExportProgress";
 
 interface AIRequest {
   action: string;
@@ -419,9 +421,18 @@ export function stripPageMarkers(text: string): string {
     .join("\n");
 }
 
-export async function buildPDF(title: string, content: string): Promise<Blob> {
+export async function buildPDF(title: string, content: string, onProgress?: (status: PdfExportStatus) => void): Promise<Blob> {
     if (!content.trim()) throw new Error("Ce document ne contient pas encore de texte à télécharger.");
+    const report = (percent: number, stage: string) => onProgress?.({ percent, stage });
+    report(0, "Initialisation…");
+    let lastYield = performance.now();
+    const yieldToScreen = async () => {
+      if (performance.now() - lastYield < 50) return;
+      await new Promise(resolve => setTimeout(resolve, 0));
+      lastYield = performance.now();
+    };
     const [{ jsPDF }, autoTableMod] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
+    report(5, "Préparation des illustrations…");
     const autoTable: any = (autoTableMod as any).default || (autoTableMod as any);
     const doc = new jsPDF({ compress: true });
     const margin = 25;
@@ -557,6 +568,7 @@ export async function buildPDF(title: string, content: string): Promise<Blob> {
     // A failed remote image must never prevent the book from being exported.
     const deadline = Date.now() + 20_000;
     let nextFigure = 0;
+    let completedFigures = 0;
     const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
       new Promise(resolve => {
         const timer = setTimeout(() => resolve(null), Math.max(0, ms));
@@ -566,6 +578,8 @@ export async function buildPDF(title: string, content: string): Promise<Blob> {
       while (nextFigure < figQueries.length && Date.now() < deadline) {
         const query = figQueries[nextFigure++];
         fetched.set(query, await withTimeout(figs.fetchFigureImage(query), deadline - Date.now()));
+        completedFigures++;
+        report(5 + Math.floor(20 * completedFigures / figQueries.length), "Préparation des illustrations…");
       }
     }));
     let figNo = 0;
@@ -598,6 +612,8 @@ export async function buildPDF(title: string, content: string): Promise<Blob> {
     };
 
     for (let i = 0; i < lines.length; i++) {
+      report(25 + Math.floor(65 * i / lines.length), "Mise en page du document…");
+      await yieldToScreen();
       const trimmed = lines[i].trim();
 
       // ---------- Charts ----------
@@ -713,9 +729,11 @@ export async function buildPDF(title: string, content: string): Promise<Blob> {
     }
 
     // ---------- Running header + page numbers ----------
+    report(90, "Ajout des en-têtes et pieds de page…");
     const total = doc.getNumberOfPages();
     const runningTitle = title.length > 70 ? `${title.slice(0, 67)}...` : title;
     for (let p = 2; p <= total; p++) {
+      await yieldToScreen();
       doc.setPage(p);
       doc.setFont("helvetica", "italic");
       doc.setFontSize(8);
@@ -730,23 +748,41 @@ export async function buildPDF(title: string, content: string): Promise<Blob> {
       doc.setTextColor(0, 0, 0);
     }
 
-    return doc.output("blob");
+    report(95, "Finalisation du fichier…");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const blob = doc.output("blob");
+    report(100, "PDF prêt");
+    return blob;
 }
 
 export async function generatePDF(title: string, content: string): Promise<void> {
-  const notice = toast.loading("Préparation du PDF…");
+  const notice = toast.loading("Préparation du PDF…", {
+    duration: Infinity,
+    description: createElement(PdfExportProgress, { percent: 0, stage: "Initialisation…" }),
+  });
+  let previousPercent = -1;
   try {
-    const blob = await buildPDF(title, content);
+    const blob = await buildPDF(title, content, status => {
+      if (status.percent === previousPercent) return;
+      previousPercent = status.percent;
+      toast.loading("Préparation du PDF…", {
+        id: notice,
+        duration: Infinity,
+        description: createElement(PdfExportProgress, status),
+      });
+    });
     const filename = `${title.replace(/[^a-zA-Z0-9À-ÿ\s]/g, "").trim().slice(0, 50) || "Document"}.pdf`;
     // Mobile browsers require a fresh click after asynchronous PDF generation.
-    if (!matchMedia("(pointer: coarse)").matches) downloadBlob(blob, filename);
-    toast.success("PDF prêt", {
+    const touchDevice = matchMedia("(pointer: coarse)").matches;
+    if (!touchDevice) downloadBlob(blob, filename);
+    toast.success(touchDevice ? "PDF prêt à télécharger" : "Téléchargement lancé", {
       id: notice,
+      description: createElement(PdfExportProgress, { percent: 100, stage: "PDF prêt" }),
       duration: Infinity,
       action: { label: "Télécharger", onClick: () => { void deliverFile(blob, filename); } },
     });
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : "Impossible de préparer le PDF. Réessayez.", { id: notice });
+    toast.error(error instanceof Error ? error.message : "Impossible de préparer le PDF. Réessayez.", { id: notice, description: undefined });
   }
 }
 

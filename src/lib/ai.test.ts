@@ -14,6 +14,17 @@ import { buildPDF, generatePDF } from "./ai";
 
 beforeEach(() => { vi.clearAllMocks(); mocks.fetch.mockResolvedValue(null); mocks.render.mockReturnValue(null); });
 describe("PDF export reliability", () => {
+  it("reports monotonic preparation progress and reaches 100 only with a finished PDF", async () => {
+    const progress = vi.fn();
+    const blob = await buildPDF("Book", "# Chapter\nFirst paragraph.\nSecond paragraph.", progress);
+    const values = progress.mock.calls.map(([status]) => status.percent);
+    expect(values[0]).toBe(0);
+    expect(values).toContain(25);
+    expect(values).toContain(95);
+    expect(values.at(-1)).toBe(100);
+    expect(values.every((value, index) => index === 0 || value >= values[index - 1])).toBe(true);
+    expect(blob.type).toBe("application/pdf");
+  });
   it("exports text and tables even if the illustration service rejects", async () => {
     mocks.fetch.mockRejectedValue(new Error("unavailable"));
     const blob = await buildPDF("Recent book", "# Chapter\nText after image\n![FIGURE: image](figure)\n| Year | Value |\n| --- | --- |\n| 2026 | 42 |");
