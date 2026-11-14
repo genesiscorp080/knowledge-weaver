@@ -1,5 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { fetchFigureImage, imageSize, parseChartSpec, parseFigureLine, renderChartToDataUrl } from "@/lib/figures";
+import { deliverFile, downloadBlob } from "@/lib/downloads";
+import { toast } from "sonner";
+import { preparePdfImage } from "@/lib/pdfImages";
 
 interface AIRequest {
   action: string;
@@ -416,10 +419,11 @@ export function stripPageMarkers(text: string): string {
     .join("\n");
 }
 
-export function generatePDF(title: string, content: string): void {
-  Promise.all([import("jspdf"), import("jspdf-autotable")]).then(async ([{ jsPDF }, autoTableMod]) => {
+export async function buildPDF(title: string, content: string): Promise<Blob> {
+    if (!content.trim()) throw new Error("Ce document ne contient pas encore de texte à télécharger.");
+    const [{ jsPDF }, autoTableMod] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
     const autoTable: any = (autoTableMod as any).default || (autoTableMod as any);
-    const doc = new jsPDF();
+    const doc = new jsPDF({ compress: true });
     const margin = 25;
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -549,15 +553,27 @@ export function generatePDF(title: string, content: string): void {
     const figs = await import("./figures");
     const figQueries = Array.from(new Set(lines.map(l => figs.parseFigureLine(l)?.query).filter(Boolean) as string[]));
     const fetched = new Map<string, Awaited<ReturnType<typeof figs.fetchFigureImage>>>();
-    const withTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<null>(r => setTimeout(() => r(null), ms))]);
-    for (let k = 0; k < figQueries.length; k += 4) {
-      await Promise.all(figQueries.slice(k, k + 4).map(async q => {
-        fetched.set(q, (await withTimeout(figs.fetchFigureImage(q), 20000)) as any);
-      }));
-    }
+    // One deadline for the entire illustration pass, not 20 seconds per batch.
+    // A failed remote image must never prevent the book from being exported.
+    const deadline = Date.now() + 20_000;
+    let nextFigure = 0;
+    const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
+      new Promise(resolve => {
+        const timer = setTimeout(() => resolve(null), Math.max(0, ms));
+        promise.then(value => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve(null); });
+      });
+    await Promise.all(Array.from({ length: Math.min(4, figQueries.length) }, async () => {
+      while (nextFigure < figQueries.length && Date.now() < deadline) {
+        const query = figQueries[nextFigure++];
+        fetched.set(query, await withTimeout(figs.fetchFigureImage(query), deadline - Date.now()));
+      }
+    }));
     let figNo = 0;
     const drawImage = async (dataUrl: string, format: "PNG" | "JPEG", caption: string) => {
-      const size = await figs.imageSize(dataUrl);
+      let prepared: Awaited<ReturnType<typeof preparePdfImage>>;
+      try { prepared = await preparePdfImage(dataUrl); }
+      catch { return; }
+      const size = prepared;
       const maxW = contentWidth * 0.9;
       const maxH = 110;
       let w = maxW;
@@ -567,7 +583,7 @@ export function generatePDF(title: string, content: string): void {
       const capLines = caption ? wrap(caption, contentWidth - 10) : [];
       need(h + 6 + capLines.length * 4.5);
       try {
-        doc.addImage(dataUrl, format, (pageWidth - w) / 2, y, w, h);
+        doc.addImage(prepared.dataUrl, "JPEG", (pageWidth - w) / 2, y, w, h, undefined, "FAST");
       } catch (e) {
         console.warn("addImage failed", e);
       }
@@ -590,7 +606,9 @@ export function generatePDF(title: string, content: string): void {
         i++;
         while (i < lines.length && !/^```/.test(lines[i].trim())) { body.push(lines[i]); i++; }
         const spec = figs.parseChartSpec(body.join("\n"));
-        const url = spec ? figs.renderChartToDataUrl(spec) : null;
+        let url: string | null = null;
+        try { url = spec ? figs.renderChartToDataUrl(spec, 700, 434) : null; }
+        catch { /* A malformed chart must not block the rest of the PDF. */ }
         if (spec && url) {
           figNo++;
           const cap = `Figure ${figNo} — ${spec.caption || spec.title || ""}`.trim();
@@ -712,8 +730,24 @@ export function generatePDF(title: string, content: string): void {
       doc.setTextColor(0, 0, 0);
     }
 
-    doc.save(`${title.replace(/[^a-zA-Z0-9À-ÿ\s]/g, "").slice(0, 50)}.pdf`);
-  });
+    return doc.output("blob");
+}
+
+export async function generatePDF(title: string, content: string): Promise<void> {
+  const notice = toast.loading("Préparation du PDF…");
+  try {
+    const blob = await buildPDF(title, content);
+    const filename = `${title.replace(/[^a-zA-Z0-9À-ÿ\s]/g, "").trim().slice(0, 50) || "Document"}.pdf`;
+    // Mobile browsers require a fresh click after asynchronous PDF generation.
+    if (!matchMedia("(pointer: coarse)").matches) downloadBlob(blob, filename);
+    toast.success("PDF prêt", {
+      id: notice,
+      duration: Infinity,
+      action: { label: "Télécharger", onClick: () => { void deliverFile(blob, filename); } },
+    });
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Impossible de préparer le PDF. Réessayez.", { id: notice });
+  }
 }
 
 export function wordCount(content: string): number {

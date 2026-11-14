@@ -104,7 +104,8 @@ const LibraryPage = () => {
                         onDownload={async () => {
                           try {
                             const full = await ensureDocumentLoaded(doc.id);
-                            if (full) await generatePDF(full.title, full.content);
+                            if (!full) throw new Error("Document introuvable");
+                            await generatePDF(full.title, full.content);
                           } catch { toast.error(t("common.error")); }
                         }}
                         onEdit={() => navigate(`/document/${doc.id}`)}

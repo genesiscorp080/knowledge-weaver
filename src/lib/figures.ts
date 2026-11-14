@@ -427,8 +427,15 @@ export async function fetchFigureImage(query: string, language = "fr"): Promise<
 export function imageSize(dataUrl: string): Promise<{ width: number; height: number }> {
   return new Promise(resolve => {
     const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth || 1000, height: img.naturalHeight || 700 });
-    img.onerror = () => resolve({ width: 1000, height: 700 });
+    const finish = (width = 1000, height = 700) => {
+      clearTimeout(timer);
+      img.onload = null;
+      img.onerror = null;
+      resolve({ width, height });
+    };
+    const timer = setTimeout(() => finish(), 3000);
+    img.onload = () => finish(img.naturalWidth || 1000, img.naturalHeight || 700);
+    img.onerror = () => finish();
     img.src = dataUrl;
   });
 }
